@@ -14,6 +14,8 @@ let editingPostId = null;
 let editingMediaPath = null;
 let editingMediaType = null;
 let siteSettings = null;
+let siteBlocks = [];
+let isManaging = false;
 
 function escapeHtml(value = '') {
   return String(value).replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
@@ -41,6 +43,64 @@ function applySettings(settings) {
 async function loadSettings() {
   const { data } = await client.from('site_settings').select('*').eq('id', true).maybeSingle();
   applySettings(data);
+}
+
+function renderSiteBlocks() {
+  const container = $('site-blocks');
+  const visible = siteBlocks.filter((block) => block.is_visible || isAdmin);
+  container.innerHTML = visible.map((block) => block.block_type === 'heading'
+    ? `<section class="site-block"><h2>${escapeHtml(block.title || block.content)}</h2>${block.content && block.title ? `<p>${escapeHtml(block.content)}</p>` : ''}</section>`
+    : `<section class="site-block"><h2>${escapeHtml(block.title)}</h2><p>${escapeHtml(block.content)}</p></section>`).join('');
+}
+
+async function loadSiteBlocks() {
+  const { data, error } = await client.from('site_blocks').select('*').order('sort_order').order('created_at');
+  if (!error) { siteBlocks = data || []; renderSiteBlocks(); if (isAdmin && isManaging) renderBlockManager(); }
+}
+
+function renderBlockManager() {
+  const manager = $('block-manager');
+  manager.innerHTML = siteBlocks.map((block, index) => `<div class="block-editor" data-block-row="${block.id}">
+    <input data-block-title value="${escapeHtml(block.title)}" placeholder="Заголовок">
+    <button class="action" type="button" data-save-block="${block.id}">СОХР.</button>
+    <button class="action" type="button" data-up-block="${block.id}" ${index === 0 ? 'disabled' : ''}>↑</button>
+    <button class="action" type="button" data-down-block="${block.id}" ${index === siteBlocks.length - 1 ? 'disabled' : ''}>↓</button>
+    <textarea data-block-content placeholder="Текст">${escapeHtml(block.content)}</textarea>
+    <label><input type="checkbox" data-block-visible ${block.is_visible ? 'checked' : ''}> Показывать посетителям</label>
+    <button class="action" type="button" data-delete-block="${block.id}">УДАЛИТЬ</button>
+    <small>${block.block_type === 'heading' ? 'Тип: заголовок' : 'Тип: текстовый блок'}</small>
+  </div>`).join('') || '<p class="admin-status">Пока нет дополнительных блоков.</p>';
+  document.querySelectorAll('[data-save-block]').forEach((button) => button.addEventListener('click', () => saveBlock(button.dataset.saveBlock)));
+  document.querySelectorAll('[data-delete-block]').forEach((button) => button.addEventListener('click', () => deleteBlock(button.dataset.deleteBlock)));
+  document.querySelectorAll('[data-up-block]').forEach((button) => button.addEventListener('click', () => moveBlock(button.dataset.upBlock, -1)));
+  document.querySelectorAll('[data-down-block]').forEach((button) => button.addEventListener('click', () => moveBlock(button.dataset.downBlock, 1)));
+}
+
+async function saveBlock(id) {
+  const row = document.querySelector(`[data-block-row="${id}"]`);
+  const payload = { title: row.querySelector('[data-block-title]').value.trim(), content: row.querySelector('[data-block-content]').value.trim(), is_visible: row.querySelector('[data-block-visible]').checked, updated_at: new Date().toISOString() };
+  const { error } = await client.from('site_blocks').update(payload).eq('id', id);
+  notice(error ? 'Не удалось сохранить блок.' : 'Блок сохранён.');
+  if (!error) loadSiteBlocks();
+}
+
+async function moveBlock(id, direction) {
+  const index = siteBlocks.findIndex((block) => block.id === id);
+  const target = siteBlocks[index + direction];
+  if (!target) return;
+  const current = siteBlocks[index];
+  const [{ error: firstError }, { error: secondError }] = await Promise.all([
+    client.from('site_blocks').update({ sort_order: target.sort_order, updated_at: new Date().toISOString() }).eq('id', current.id),
+    client.from('site_blocks').update({ sort_order: current.sort_order, updated_at: new Date().toISOString() }).eq('id', target.id),
+  ]);
+  notice(firstError || secondError ? 'Не удалось изменить порядок.' : 'Порядок блока изменён.');
+  if (!firstError && !secondError) loadSiteBlocks();
+}
+
+async function deleteBlock(id) {
+  const { error } = await client.from('site_blocks').delete().eq('id', id);
+  notice(error ? 'Не удалось удалить блок.' : 'Блок удалён.');
+  if (!error) loadSiteBlocks();
 }
 
 async function loadPosts() {
@@ -72,9 +132,12 @@ async function refreshAdmin() {
     isAdmin = Boolean(data);
   }
   $('auth-controls').classList.toggle('hidden', isAdmin);
-  $('editor').classList.toggle('hidden', !isAdmin);
-  $('admin-status').textContent = isAdmin ? 'Вы вошли как администратор. Можно создавать посты.' : user ? 'Аккаунт создан, но права администратора ещё не назначены.' : 'Войдите с email и паролем.';
-  if (isAdmin) loadAdminTools();
+  $('mode-picker').classList.toggle('hidden', !isAdmin || isManaging);
+  $('editor').classList.toggle('hidden', !isAdmin || !isManaging);
+  document.body.classList.toggle('editing-mode', isAdmin && isManaging);
+  $('admin-toggle').textContent = isAdmin ? 'РЕЖИМ АДМИНА' : 'ВХОД АДМИНА';
+  $('admin-status').textContent = isAdmin ? (isManaging ? 'Режим управления активен: все изменения сохраняются для посетителей.' : 'Вы вошли как администратор. Выберите режим работы.') : user ? 'Аккаунт создан, но права администратора ещё не назначены.' : 'Войдите с email и паролем.';
+  if (isAdmin && isManaging) loadAdminTools();
   if (isAdmin && siteSettings) {
     $('builder-title').value = siteSettings.site_title;
     $('builder-tagline').value = siteSettings.tagline;
@@ -82,6 +145,7 @@ async function refreshAdmin() {
     $('builder-hero').checked = siteSettings.show_hero;
     $('builder-blog').checked = siteSettings.show_blog;
   }
+  renderSiteBlocks();
 }
 
 async function loadAdminTools() {
@@ -105,13 +169,27 @@ $('login').addEventListener('click', async () => {
   notice(error ? 'Не удалось войти: проверьте email и пароль.' : 'Вход выполнен.');
   if (!error) await refreshAdmin();
 });
-$('logout').addEventListener('click', async () => { await client.auth.signOut(); notice('Вы вышли из аккаунта.'); await refreshAdmin(); });
+async function signOutAdmin() { isManaging = false; await client.auth.signOut(); notice('Вы вышли из аккаунта.'); await refreshAdmin(); }
+$('logout').addEventListener('click', signOutAdmin);
+$('logout-editor').addEventListener('click', signOutAdmin);
+$('preview-site').addEventListener('click', () => { isManaging = false; refreshAdmin(); });
+$('exit-manager').addEventListener('click', () => { isManaging = false; refreshAdmin(); });
+$('manage-site').addEventListener('click', async () => { isManaging = true; await refreshAdmin(); await loadSiteBlocks(); });
 $('save-builder').addEventListener('click', async () => {
   const settings = { site_title: $('builder-title').value.trim(), tagline: $('builder-tagline').value.trim(), accent_color: $('builder-accent').value, show_hero: $('builder-hero').checked, show_blog: $('builder-blog').checked, updated_at: new Date().toISOString() };
   if (!settings.site_title || !settings.tagline) { notice('Заполните название и подзаголовок.'); return; }
   const { error } = await client.from('site_settings').update(settings).eq('id', true);
   notice(error ? 'Не удалось сохранить оформление.' : 'Оформление обновлено.');
   if (!error) applySettings(settings);
+});
+$('add-block').addEventListener('click', async () => {
+  const title = $('new-block-title').value.trim();
+  const content = $('new-block-content').value.trim();
+  if (!title && !content) { notice('Добавьте заголовок или текст блока.'); return; }
+  const nextOrder = siteBlocks.length ? Math.max(...siteBlocks.map((block) => block.sort_order)) + 1 : 0;
+  const { error } = await client.from('site_blocks').insert({ block_type: $('new-block-type').value, title, content, sort_order: nextOrder });
+  notice(error ? 'Не удалось добавить блок.' : 'Блок добавлен.');
+  if (!error) { $('new-block-title').value = ''; $('new-block-content').value = ''; loadSiteBlocks(); }
 });
 $('save-post').addEventListener('click', async () => {
   const title = $('post-title').value.trim();
@@ -137,4 +215,5 @@ $('save-post').addEventListener('click', async () => {
 
 await loadSettings();
 await refreshAdmin();
+await loadSiteBlocks();
 loadPosts();
