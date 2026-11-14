@@ -19,12 +19,17 @@ let siteSettings = null;
 let siteBlocks = [];
 let isManaging = false;
 let winterCheckins = [];
+let winterNote = null;
 // Give writing a post its own simple window, separate from site settings.
 const postDialog = document.createElement('dialog');
 postDialog.id = 'post-dialog';
-postDialog.innerHTML = '<form id="simple-post-form"><h2 id="post-dialog-title">Новый пост</h2><p>Поделись тем, что у тебя нового.</p><label id="simple-title-label">Название поста</label><label id="simple-body-label">Что внутри</label><label id="simple-media-label">Прикрепить картинку или видео (по желанию)</label><p id="post-form-message" role="status"></p><div class="post-form-actions"><button class="action" type="button" id="post-cancel">Отмена</button></div></form>';
+postDialog.innerHTML = '<form id="simple-post-form"><h2 id="post-dialog-title">Новый пост</h2><p>Поделись тем, что у тебя нового.</p><label id="simple-title-label">Название поста</label><label id="simple-body-label">Что внутри</label><label id="simple-media-label">Прикрепить картинку или видео (по желанию)</label><details class="post-options"><summary>Дополнительно</summary><label>Темы через запятую<input id="post-tags" maxlength="180" placeholder="разработка, winterarc"></label><label>Режим публикации<select id="post-mode"><option value="publish">Опубликовать сейчас</option><option value="draft">Сохранить черновик</option><option value="schedule">Опубликовать позже</option></select></label><label id="post-schedule-label" class="hidden">Дата и время публикации<input id="post-schedule" type="datetime-local"></label><label><input id="post-pinned" type="checkbox"> Закрепить в начале ленты</label><label id="post-remove-media-label" class="hidden"><input id="post-remove-media" type="checkbox"> Убрать прикреплённый файл</label></details><p id="post-form-message" role="status"></p><div class="post-form-actions"><button class="action" type="button" id="post-cancel">Отмена</button></div></form>';
 postDialog.setAttribute('aria-labelledby', 'post-dialog-title');
 document.body.append(postDialog);
+const adminOverview = document.createElement('section');
+adminOverview.className = 'manager admin-dashboard';
+adminOverview.innerHTML = '<h3>ЦЕНТР УПРАВЛЕНИЯ</h3><div class="admin-overview" id="admin-overview"><div><b>—</b><span>ПОСТЫ</span></div><div><b>—</b><span>КОММЕНТАРИИ</span></div><div><b>—</b><span>ВИЗИТЫ / 7 ДНЕЙ</span></div></div><div id="media-library"></div><div id="edit-history"></div>';
+$('editor').prepend(adminOverview);
 $('post-title').previousElementSibling.remove();
 $('simple-title-label').append($('post-title'));
 $('simple-body-label').append($('post-body'));
@@ -39,9 +44,11 @@ $('post-title').placeholder = 'О чём этот пост?';
 $('post-body').placeholder = 'Напиши свой текст…';
 $('post-cancel').addEventListener('click', () => postDialog.close());
 $('simple-post-form').addEventListener('submit', (event) => { event.preventDefault(); if (!$('save-post').disabled) $('save-post').click(); });
+$('post-mode').addEventListener('change', () => $('post-schedule-label').classList.toggle('hidden', $('post-mode').value !== 'schedule'));
 function showPostForm() {
   $('post-dialog-title').textContent = editingPostId ? 'Редактировать пост' : 'Новый пост';
   $('post-form-message').textContent = '';
+  $('post-remove-media-label').classList.toggle('hidden', !editingMediaPath);
   $('save-post').textContent = editingPostId ? 'Сохранить изменения' : 'Опубликовать';
   $('admin-modal').classList.add('hidden');
   postDialog.showModal();
@@ -51,7 +58,7 @@ const visualElements = new Map();
 const savedElementEdits = new Map();
 let selectedVisual = null;
 // Stable keys are assigned before any remote content changes the page.
-document.querySelectorAll('nav [data-tab], #home h1, #home p, #home .eyebrow, #home img, #about h2, #about p, #about blockquote, #about cite a, #about .trait, #about .about-note, #projects .section-placeholder h2, #projects .section-placeholder p, #winter h2, #winter .section-placeholder > p:first-of-type, #blog-title, #blog-panel .blog-head p, footer > span').forEach((element, index) => {
+document.querySelectorAll('nav [data-tab], #home h1, #home p, #home .eyebrow, #home img, #about h2, #about h3, #about p, #about blockquote, #about cite a, #about .trait, #about .about-note, #about .skill-pills span, #projects .section-placeholder h2, #projects .section-placeholder h3, #projects .section-placeholder p, #projects .project-status, #winter h2, #winter .section-placeholder > p:first-of-type, #blog-title, #blog-panel .blog-head p, footer > span').forEach((element, index) => {
   const key = element.id || `page-element-${index}`;
   element.dataset.visualKey = key;
   visualElements.set(key, element);
@@ -118,6 +125,9 @@ $('element-form').addEventListener('submit', async (event) => {
   button.disabled = true;
   try {
     let result;
+    const previous = savedElementEdits.get(element.dataset.visualKey) || { text: element.tagName === 'IMG' ? '' : element.textContent, src: element.tagName === 'IMG' ? element.getAttribute('src') : '', color: '', size: 0, align: '' };
+    const historyResult = await client.from('site_edit_history').insert({ element_key: element.dataset.visualKey, properties: previous });
+    if (historyResult.error) throw historyResult.error;
     if (element.dataset.blockId) {
       result = await client.from('site_blocks').update({ [element.dataset.blockField]: properties.text, updated_at: new Date().toISOString() }).eq('id', element.dataset.blockId).select('id').single();
       if (result.error) throw result.error;
@@ -153,7 +163,7 @@ const habits = [
 let arcSelectedDay = null;
 const arcNavigation = document.createElement('div');
 arcNavigation.className = 'arc-navigation';
-arcNavigation.innerHTML = '<div class="arc-navigation-controls"><button class="action" id="arc-prev" type="button" aria-label="На день назад">←</button><button class="action" id="arc-today" type="button">Сегодня</button><button class="action" id="arc-next" type="button" aria-label="На день вперёд">→</button><span id="arc-range"></span></div><p id="arc-status" role="status"></p>';
+arcNavigation.innerHTML = '<div class="arc-navigation-controls"><button class="action" id="arc-prev" type="button" aria-label="На день назад">←</button><button class="action" id="arc-today" type="button">Сегодня</button><button class="action" id="arc-next" type="button" aria-label="На день вперёд">→</button><span id="arc-range"></span><button class="action" id="arc-share" type="button">ПОДЕЛИТЬСЯ НЕДЕЛЕЙ</button></div><p id="arc-status" role="status"></p>';
 document.querySelector('#winter .tracker-wrap').before(arcNavigation);
 function renderWinterArc() {
   const { today, days: weekDays, weekStart, weekEnd, monthStart } = getArcDates(new Date(), arcSelectedDay);
@@ -167,6 +177,19 @@ function renderWinterArc() {
   const monthDone = winterCheckins.filter((checkin) => checkin.checkin_date >= monthKey && checkin.checkin_date <= todayKey).length;
   const expectedMonth = today.getUTCDate() * habits.length;
   $('arc-dashboard').innerHTML = `<div class="arc-stat"><span>СЕГОДНЯ</span><b>${todayDone} / ${habits.length}</b></div><div class="arc-stat"><span>ЭТА НЕДЕЛЯ</span><b>${weekDone} / ${habits.length * 7}</b></div><div class="arc-stat"><span>ЭТОТ МЕСЯЦ</span><b>${monthDone} / ${expectedMonth}</b></div>`;
+  const habitScores = habits.map((habit) => ({ ...habit, count: winterCheckins.filter((item) => item.activity === habit.id && item.checkin_date >= monthKey && item.checkin_date <= todayKey).length }));
+  const bestHabit = [...habitScores].sort((a, b) => b.count - a.count)[0];
+  let streak = 0;
+  for (let date = today; dateKey(date) >= monthKey; date = addDays(date, -1)) { if (winterCheckins.some((item) => item.checkin_date === dateKey(date))) streak += 1; else break; }
+  const monthPercent = expectedMonth ? Math.round((monthDone / expectedMonth) * 100) : 0;
+  $('arc-insights').innerHTML = `<article class="arc-insight"><span>ТЕМП МЕСЯЦА</span><b>${monthPercent}%</b></article><article class="arc-insight"><span>ЛУЧШИЙ РИТМ</span><b>${bestHabit?.label || '—'} · ${bestHabit?.count || 0}</b></article><article class="arc-insight"><span>СЕРИЯ ДНЕЙ</span><b>${streak} ${streak === 1 ? 'день' : streak >= 2 && streak <= 4 ? 'дня' : 'дней'}</b></article>`;
+  const monthDays = Array.from({ length: today.getUTCDate() }, (_, index) => addDays(monthStart, index));
+  $('arc-heatmap-label').textContent = `${monthDone} действий · ${monthPercent}%`;
+  $('arc-heatmap').innerHTML = monthDays.map((date) => { const done = winterCheckins.filter((item) => item.checkin_date === dateKey(date)).length; const level = done === 0 ? 0 : done < 3 ? 1 : done < 5 ? 2 : 3; return `<div class="heat-cell level-${level}" title="${dateKey(date)}: ${done} из ${habits.length}" aria-label="${dateKey(date)}: ${done} из ${habits.length}">${date.getUTCDate()}</div>`; }).join('');
+  const selectedKey = arcSelectedDay || todayKey;
+  const noteContent = winterNote?.note_date === selectedKey ? winterNote.content : '';
+  $('arc-note-card').innerHTML = isAdmin ? `<div class="eyebrow">// DAILY NOTE</div><h3>Заметка дня · ${selectedKey}</h3><p>Коротко зафиксируй, что получилось или что хочешь улучшить.</p><form class="arc-note-form" id="arc-note-form"><textarea id="arc-note-content" maxlength="1000" placeholder="Сегодня я…">${escapeHtml(noteContent)}</textarea><button class="action" type="submit">СОХРАНИТЬ ЗАМЕТКУ</button><span class="toast" id="arc-note-message"></span></form>` : noteContent ? `<div class="eyebrow">// DAILY NOTE</div><h3>Заметка дня</h3><p>${escapeHtml(noteContent)}</p>` : '';
+  $('arc-note-form')?.addEventListener('submit', async (event) => { event.preventDefault(); const content = $('arc-note-content').value.trim(); const { error } = content ? await client.from('winter_arc_notes').upsert({ note_date: selectedKey, content, updated_at: new Date().toISOString() }) : await client.from('winter_arc_notes').delete().eq('note_date', selectedKey); $('arc-note-message').textContent = error ? 'Не удалось сохранить заметку.' : 'Заметка сохранена.'; if (!error) loadWinterArc(); });
   $('habit-head').innerHTML = `<tr><th>АКТИВНОСТЬ</th>${weekDays.map((date) => `<th class="${dateKey(date) === todayKey ? 'arc-today' : ''}" ${dateKey(date) === todayKey ? 'aria-current="date"' : ''}>${new Intl.DateTimeFormat('ru-RU', { weekday: 'short', timeZone: 'UTC' }).format(date)}<br>${new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', timeZone: 'UTC' }).format(date)}${dateKey(date) === todayKey ? '<small>СЕГОДНЯ</small>' : ''}</th>`).join('')}</tr>`;
   $('habit-body').innerHTML = habits.map((habit) => `<tr><td class="habit-name">${habit.label}<small>${habit.hint}</small></td>${weekDays.map((date) => {
     const key = dateKey(date); const checked = hasCheckin(habit.id, key);
@@ -186,11 +209,13 @@ async function loadWinterArc() {
   document.querySelectorAll('[data-habit]').forEach((input) => { input.disabled = true; });
   const statsFrom = dateKey(new Date(Math.min(weekStart, monthStart)));
   const readRange = (from, to) => client.from('winter_arc_checkins').select('activity,checkin_date').gte('checkin_date', from).lte('checkin_date', to);
-  const results = await Promise.all([readRange(statsFrom, dateKey(weekEnd)), readRange(dateKey(days[0]), dateKey(days[6]))]);
+  const selectedKey = arcSelectedDay || dateKey(today);
+  const results = await Promise.all([readRange(statsFrom, dateKey(weekEnd)), readRange(dateKey(days[0]), dateKey(days[6])), client.from('winter_arc_notes').select('note_date,content,updated_at').eq('note_date', selectedKey).maybeSingle()]);
   if (request !== arcRequest) return;
   $('habit-body').setAttribute('aria-busy', 'false');
   if (results.some((result) => result.error)) { $('arc-status').textContent = 'Не удалось загрузить отметки. Нажми «Сегодня» или стрелку, чтобы повторить.'; return; }
-  winterCheckins = [...new Map(results.flatMap((result) => result.data || []).map((item) => [`${item.activity}-${item.checkin_date}`, item])).values()];
+  winterCheckins = [...new Map(results.slice(0, 2).flatMap((result) => result.data || []).map((item) => [`${item.activity}-${item.checkin_date}`, item])).values()];
+  winterNote = results[2].data || null;
   arcLoadedDay = dateKey(today);
   renderWinterArc();
   $('arc-status').textContent = arcSelectedDay ? 'Просмотр истории · статистика выше — за текущие периоды' : 'Текущие даты · московское время';
@@ -205,6 +230,12 @@ function shiftArcDay(amount) {
 $('arc-prev').addEventListener('click', () => shiftArcDay(-1));
 $('arc-next').addEventListener('click', () => shiftArcDay(1));
 $('arc-today').addEventListener('click', () => { arcSelectedDay = null; loadWinterArc(); });
+$('arc-share').addEventListener('click', async () => {
+  const { today, weekStart, weekEnd } = getArcDates();
+  const done = winterCheckins.filter((item) => item.checkin_date >= dateKey(weekStart) && item.checkin_date <= dateKey(weekEnd)).length;
+  const text = `Winter Arc · ${done}/${habits.length * 7} действий за неделю. Двигаюсь дальше → ${location.origin}${location.pathname}#winter`;
+  try { if (navigator.share) await navigator.share({ title: 'Winter Arc · vertexglz', text, url: `${location.origin}${location.pathname}#winter` }); else await navigator.clipboard.writeText(text); $('arc-status').textContent = 'Итоги недели готовы: ссылка скопирована.'; } catch { /* Visitor closed the native share dialog. */ }
+});
 
 function scheduleArcMidnight() {
   clearTimeout(arcMidnightTimer);
@@ -288,6 +319,14 @@ async function loadSettings() {
   applySettings(data);
 }
 
+async function recordPrivacyFriendlyVisit() {
+  try {
+    let visitorKey = localStorage.getItem('vertexglz-visitor-key');
+    if (!visitorKey) { visitorKey = crypto.randomUUID(); localStorage.setItem('vertexglz-visitor-key', visitorKey); }
+    await client.from('site_visits').insert({ visitor_key: visitorKey, path: location.pathname || '/' });
+  } catch { /* Analytics must never affect a visitor's experience. */ }
+}
+
 function renderSiteBlocks() {
   const container = $('site-blocks');
   const visible = siteBlocks.filter((block) => block.is_visible || isAdmin);
@@ -358,16 +397,24 @@ async function deleteBlock(id) {
 }
 
 let feedFilter = 'all';
+let feedTag = '';
 let feedOffset = 0;
 let feedBusy = false;
 let feedVersion = 0;
+function renderTagFilter(posts = []) {
+  const tags = [...new Set(posts.flatMap((post) => post.tags || []))].slice(0, 8);
+  const available = feedTag && !tags.includes(feedTag) ? [feedTag, ...tags] : tags;
+  $('tag-filter').innerHTML = available.map((tag) => `<button type="button" class="${tag === feedTag ? 'selected' : ''}" data-tag-filter="${escapeHtml(tag)}">#${escapeHtml(tag)}</button>`).join('');
+  document.querySelectorAll('[data-tag-filter]').forEach((button) => button.addEventListener('click', () => { feedTag = feedTag === button.dataset.tagFilter ? '' : button.dataset.tagFilter; loadPosts(); }));
+}
 async function loadPosts(append = false) {
   const version = ++feedVersion;
   if (!append) { feedOffset = 0; reader.classList.add('hidden'); feed.innerHTML = '<div class="empty">Загрузка записей…</div>'; }
   feedBusy = true;
   $('timeline-more').disabled = true;
-  let query = client.from('posts').select('id,title,slug,excerpt,body,media_path,media_type,published_at,created_at').eq('is_published', true).order('published_at', { ascending: false }).order('id').range(feedOffset, feedOffset + 5);
+  let query = client.from('posts').select('id,title,slug,excerpt,body,media_path,media_type,tags,is_pinned,published_at,created_at').eq('is_published', true).order('is_pinned', { ascending: false }).order('published_at', { ascending: false }).order('id').range(feedOffset, feedOffset + 5);
   if (feedFilter === 'media') query = query.not('media_path', 'is', null);
+  if (feedTag) query = query.overlaps('tags', [feedTag]);
   const { data, error } = await query;
   if (version !== feedVersion) return;
   feedBusy = false;
@@ -375,16 +422,18 @@ async function loadPosts(append = false) {
   if (error) { if (!append) feed.innerHTML = '<div class="empty">Не удалось загрузить ленту. Обнови страницу, чтобы попробовать снова.</div>'; $('timeline-more').textContent = 'Попробовать ещё'; return; }
   if (!append) feed.innerHTML = '';
   const posts = (data || []).slice(0, 5);
+  if (!append) renderTagFilter(data || []);
   $('timeline-more').classList.toggle('hidden', data.length <= 5);
   $('timeline-more').textContent = 'Показать ещё';
   if (!posts.length && !append) feed.innerHTML = `<div class="empty">${feedFilter === 'media' ? 'Фото и видео появятся здесь вместе с новыми записями.' : 'Здесь начинается история.<br>Первой записи пока нет — скоро поделюсь тем, над чем работаю.'}</div>`;
   posts.forEach((post) => {
     const article = document.createElement('article');
-    article.className = 'timeline-post'; article.dataset.postId = post.id;
+    article.className = `timeline-post${post.is_pinned ? ' pinned' : ''}`; article.dataset.postId = post.id;
     const body = post.body || post.excerpt || '';
-    article.innerHTML = `<img class="timeline-avatar" src="assets/pepega-avatar.png" alt="" width="44" height="44"><div><div class="timeline-author"><strong>vertexglz</strong><span>@vertexglz</span><time datetime="${escapeHtml(post.published_at || post.created_at)}">· ${formatDate(post.published_at || post.created_at)}</time></div><h3>${escapeHtml(post.title)}</h3><p class="timeline-text">${escapeHtml(body.slice(0, 700))}</p>${body.length > 700 ? '<button class="timeline-expand" type="button">Читать полностью</button>' : ''}${mediaMarkup(post.media_path, post.media_type)}<div class="timeline-actions"><button type="button" data-discuss>◯ Комментарии</button><button type="button" data-share>↗ Ссылка</button></div></div>`;
+    article.innerHTML = `<img class="timeline-avatar" src="assets/pepega-avatar.png" alt="" width="44" height="44"><div><div class="timeline-author"><strong>vertexglz</strong><span>@vertexglz</span><time datetime="${escapeHtml(post.published_at || post.created_at)}">· ${formatDate(post.published_at || post.created_at)}</time>${post.is_pinned ? '<span class="timeline-pin">⌁ ЗАКРЕПЛЕНО</span>' : ''}</div><h3>${escapeHtml(post.title)}</h3><p class="timeline-text">${escapeHtml(body.slice(0, 700))}</p>${body.length > 700 ? '<button class="timeline-expand" type="button">Читать полностью</button>' : ''}${(post.tags || []).length ? `<div class="timeline-tags">${post.tags.map((tag) => `<button class="post-tag" type="button" data-post-tag="${escapeHtml(tag)}">#${escapeHtml(tag)}</button>`).join('')}</div>` : ''}${mediaMarkup(post.media_path, post.media_type)}<div class="timeline-actions"><button type="button" data-discuss>◯ Комментарии</button><button type="button" data-share>↗ Ссылка</button></div></div>`;
     article.querySelector('.timeline-expand')?.addEventListener('click', (event) => { article.querySelector('.timeline-text').textContent = body; event.currentTarget.remove(); });
     article.querySelector('[data-discuss]').addEventListener('click', () => openPost(post));
+    article.querySelectorAll('[data-post-tag]').forEach((button) => button.addEventListener('click', () => { feedTag = button.dataset.postTag; loadPosts(); }));
     article.querySelector('[data-share]').addEventListener('click', async (event) => {
       const button = event.currentTarget;
       try { await navigator.clipboard.writeText(`${location.origin}${location.pathname}#post-${post.id}`); button.textContent = 'Скопировано ✓'; } catch { button.textContent = 'Не удалось скопировать'; }
@@ -403,18 +452,21 @@ $('timeline-new-post').addEventListener('click', async () => {
   if (!isAdmin) return;
   editingPostId = null; editingPostSlug = null; editingMediaPath = null; editingMediaType = null;
   ['post-title','post-body','post-media'].forEach((id) => { $(id).value = ''; });
+  $('post-tags').value = ''; $('post-mode').value = 'publish'; $('post-schedule').value = ''; $('post-pinned').checked = false; $('post-remove-media').checked = false; $('post-schedule-label').classList.add('hidden');
   showPostForm();
 });
 
 async function openPost(post) {
   const { data: comments } = await client.from('comments').select('author_name,body,created_at').eq('post_id', post.id).eq('is_approved', true).order('created_at');
   reader.classList.remove('hidden');
-  reader.innerHTML = `<span class="meta">${formatDate(post.published_at || post.created_at)}</span><h3>${escapeHtml(post.title)}</h3><div class="body-copy">${escapeHtml(post.body)}</div>${mediaMarkup(post.media_path, post.media_type)}<section class="comments"><h3>КОММЕНТАРИИ</h3><div>${(comments || []).map((comment) => `<div class="comment"><strong>${escapeHtml(comment.author_name)}</strong><br>${escapeHtml(comment.body)}</div>`).join('') || '<p>Пока нет комментариев.</p>'}</div><form class="form-grid" id="comment-form"><input id="comment-name" maxlength="80" required placeholder="Ваше имя"><textarea id="comment-body" maxlength="2000" required placeholder="Ваш комментарий"></textarea><button class="action">ОТПРАВИТЬ НА МОДЕРАЦИЮ</button><span class="toast" id="comment-message"></span></form></section>`;
+  reader.innerHTML = `<span class="meta">${formatDate(post.published_at || post.created_at)}</span><h3>${escapeHtml(post.title)}</h3>${(post.tags || []).length ? `<div class="timeline-tags">${post.tags.map((tag) => `<span class="post-tag">#${escapeHtml(tag)}</span>`).join('')}</div>` : ''}<div class="body-copy">${escapeHtml(post.body)}</div>${mediaMarkup(post.media_path, post.media_type)}<section class="comments"><h3>КОММЕНТАРИИ</h3><div>${(comments || []).map((comment) => `<div class="comment"><strong>${escapeHtml(comment.author_name)}</strong><br>${escapeHtml(comment.body)}</div>`).join('') || '<p>Пока нет комментариев.</p>'}</div><form class="form-grid" id="comment-form"><input id="comment-website" class="comment-website" tabindex="-1" autocomplete="off" aria-hidden="true"><input id="comment-name" maxlength="80" required placeholder="Ваше имя"><textarea id="comment-body" maxlength="2000" required placeholder="Ваш комментарий"></textarea><button class="action">ОТПРАВИТЬ НА МОДЕРАЦИЮ</button><span class="toast" id="comment-message"></span></form></section>`;
   $('comment-form').addEventListener('submit', async (event) => {
     event.preventDefault();
-    const result = await client.from('comments').insert({ post_id: post.id, author_name: $('comment-name').value.trim(), body: $('comment-body').value.trim() });
+    const lastCommentAt = Number(localStorage.getItem('vertexglz-last-comment-at') || 0);
+    if ($('comment-website').value || Date.now() - lastCommentAt < 45_000) { $('comment-message').textContent = 'Попробуй отправить комментарий чуть позже.'; return; }
+    const result = await client.from('comments').insert({ post_id: post.id, author_name: $('comment-name').value.trim(), body: $('comment-body').value.trim(), website: '' });
     $('comment-message').textContent = result.error ? 'Не удалось отправить комментарий.' : 'Спасибо! Комментарий отправлен на модерацию.';
-    if (!result.error) event.target.reset();
+    if (!result.error) { localStorage.setItem('vertexglz-last-comment-at', String(Date.now())); event.target.reset(); }
   });
   reader.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
@@ -449,16 +501,29 @@ async function refreshAdmin() {
 }
 
 async function loadAdminTools() {
-  const [{ data: posts }, { data: pending }] = await Promise.all([
-    client.from('posts').select('id,title,slug,excerpt,body,media_path,media_type,is_published').order('created_at', { ascending: false }),
+  const weekAgo = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
+  const [{ data: posts }, { data: pending }, { count: visits }, { data: history }] = await Promise.all([
+    client.from('posts').select('id,title,slug,excerpt,body,media_path,media_type,tags,is_pinned,is_published,scheduled_for,published_at').order('created_at', { ascending: false }),
     client.from('comments').select('id,author_name,body,post_id,created_at').eq('is_approved', false).order('created_at'),
+    client.from('site_visits').select('*', { count: 'exact', head: true }).gte('visit_day', weekAgo),
+    client.from('site_edit_history').select('id,element_key,properties,created_at').order('created_at', { ascending: false }).limit(8),
   ]);
-  $('post-manager').innerHTML = `<h3>ПОСТЫ</h3>${(posts || []).map((post) => `<div class="comment"><strong>${escapeHtml(post.title)}</strong><br><button class="action" type="button" data-edit-post="${post.id}">РЕДАКТИРОВАТЬ</button></div>`).join('') || '<p>Постов пока нет.</p>'}`;
+  $('admin-overview').innerHTML = `<div><b>${posts?.length || 0}</b><span>ПОСТЫ</span></div><div><b>${pending?.length || 0}</b><span>НА МОДЕРАЦИИ</span></div><div><b>${visits || 0}</b><span>ВИЗИТЫ / 7 ДНЕЙ</span></div>`;
+  $('admin-toggle').innerHTML = isAdmin ? `РЕЖИМ АДМИНА${pending?.length ? `<i class="admin-badge">${pending.length}</i>` : ''}` : 'ВХОД АДМИНА';
+  $('post-manager').innerHTML = `<h3>ПОСТЫ</h3>${(posts || []).map((post) => `<div class="comment"><strong>${escapeHtml(post.title)}</strong><br><small>${post.is_published ? (post.scheduled_for && new Date(post.scheduled_for) > new Date() ? 'Запланирован' : 'Опубликован') : 'Черновик'}${post.is_pinned ? ' · закреплён' : ''}</small><br><button class="action" type="button" data-edit-post="${post.id}">РЕДАКТИРОВАТЬ</button> <button class="action" type="button" data-preview-post="${post.id}">ПРЕДПРОСМОТР</button> <button class="action" type="button" data-toggle-post="${post.id}">${post.is_published ? 'В ЧЕРНОВИК' : 'ОПУБЛИКОВАТЬ'}</button> <button class="action" type="button" data-revert-post="${post.id}">ВЕРНУТЬ ВЕРСИЮ</button> <button class="action" type="button" data-delete-post="${post.id}">УДАЛИТЬ</button></div>`).join('') || '<p>Постов пока нет.</p>'}`;
   $('moderation').innerHTML = `<h3>МОДЕРАЦИЯ</h3>${(pending || []).map((comment) => `<div class="comment"><strong>${escapeHtml(comment.author_name)}</strong>: ${escapeHtml(comment.body)}<br><button class="action" type="button" data-approve="${comment.id}">ОДОБРИТЬ</button> <button class="action" type="button" data-delete-comment="${comment.id}">УДАЛИТЬ</button></div>`).join('') || '<p>Нет комментариев на модерации.</p>'}`;
+  const media = (posts || []).filter((post) => post.media_path);
+  $('media-library').innerHTML = `<h3>МЕДИАТЕКА</h3>${media.length ? media.map((post) => { const { data } = client.storage.from('post-media').getPublicUrl(post.media_path); return `<a class="post-tag" href="${data.publicUrl}" target="_blank" rel="noopener">${escapeHtml(post.title)}</a>`; }).join(' ') : '<p class="admin-status">Пока нет прикреплённых файлов.</p>'}`;
+  $('edit-history').innerHTML = `<h3>ПОСЛЕДНИЕ ПРАВКИ САЙТА</h3>${(history || []).map((item) => `<div class="comment"><small>${escapeHtml(item.element_key)} · ${formatDate(item.created_at)}</small><br><button class="action" type="button" data-restore-edit="${item.id}">ОТКАТИТЬ К ЭТОЙ ВЕРСИИ</button></div>`).join('') || '<p class="admin-status">История появится после первой правки элемента.</p>'}`;
   document.querySelectorAll('[data-edit-post]').forEach((button) => button.addEventListener('click', () => {
     const post = posts.find((item) => item.id === button.dataset.editPost);
-    editingPostId = post.id; editingPostSlug = post.slug; editingMediaPath = post.media_path; editingMediaType = post.media_type; $('post-title').value = post.title; $('post-body').value = post.body; $('post-media').value = ''; showPostForm();
+    editingPostId = post.id; editingPostSlug = post.slug; editingMediaPath = post.media_path; editingMediaType = post.media_type; $('post-title').value = post.title; $('post-body').value = post.body; $('post-media').value = ''; $('post-tags').value = (post.tags || []).join(', '); $('post-pinned').checked = post.is_pinned; $('post-remove-media').checked = false; $('post-mode').value = post.is_published ? (post.scheduled_for && new Date(post.scheduled_for) > new Date() ? 'schedule' : 'publish') : 'draft'; $('post-schedule').value = post.scheduled_for ? new Date(post.scheduled_for).toISOString().slice(0, 16) : ''; $('post-schedule-label').classList.toggle('hidden', $('post-mode').value !== 'schedule'); showPostForm();
   }));
+  document.querySelectorAll('[data-preview-post]').forEach((button) => button.addEventListener('click', () => openPost(posts.find((item) => item.id === button.dataset.previewPost))));
+  document.querySelectorAll('[data-toggle-post]').forEach((button) => button.addEventListener('click', async () => { const post = posts.find((item) => item.id === button.dataset.togglePost); await client.from('posts').update({ is_published: !post.is_published, scheduled_for: null, published_at: !post.is_published ? new Date().toISOString() : post.published_at }).eq('id', post.id); loadAdminTools(); loadPosts(); }));
+  document.querySelectorAll('[data-revert-post]').forEach((button) => button.addEventListener('click', async () => { const { data: revision } = await client.from('post_revisions').select('id,snapshot').eq('post_id', button.dataset.revertPost).order('created_at', { ascending: false }).limit(1).maybeSingle(); if (!revision) { notice('Для этого поста ещё нет сохранённой прошлой версии.'); return; } if (!confirm('Вернуть последнюю сохранённую версию поста?')) return; const { error } = await client.from('posts').update(revision.snapshot).eq('id', button.dataset.revertPost); if (!error) { await client.from('post_revisions').delete().eq('id', revision.id); notice('Прошлая версия поста восстановлена.'); loadAdminTools(); loadPosts(); } }));
+  document.querySelectorAll('[data-delete-post]').forEach((button) => button.addEventListener('click', async () => { const post = posts.find((item) => item.id === button.dataset.deletePost); if (!confirm(`Удалить пост «${post.title}»?`)) return; await client.from('posts').delete().eq('id', post.id); loadAdminTools(); loadPosts(); }));
+  document.querySelectorAll('[data-restore-edit]').forEach((button) => button.addEventListener('click', async () => { const item = history.find((entry) => entry.id === button.dataset.restoreEdit); if (!item) return; const { error } = await client.from('site_element_edits').upsert({ element_key: item.element_key, properties: item.properties, updated_at: new Date().toISOString() }); if (!error) { const element = visualElements.get(item.element_key); if (element) applyElementProperties(element, item.properties); savedElementEdits.set(item.element_key, item.properties); notice('Версия элемента восстановлена.'); } }));
   document.querySelectorAll('[data-approve]').forEach((button) => button.addEventListener('click', async () => { await client.from('comments').update({ is_approved: true }).eq('id', button.dataset.approve); loadAdminTools(); }));
   document.querySelectorAll('[data-delete-comment]').forEach((button) => button.addEventListener('click', async () => { await client.from('comments').delete().eq('id', button.dataset.deleteComment); loadAdminTools(); }));
 }
@@ -504,6 +569,7 @@ $('save-post').addEventListener('click', async () => {
   try {
   let mediaPath = editingMediaPath;
   let mediaType = editingMediaType;
+  if ($('post-remove-media').checked) { mediaPath = null; mediaType = null; }
   const file = $('post-media').files[0];
   if (file) {
     if (file.size > 52428800 || !['image/jpeg','image/png','image/webp','image/gif','video/mp4','video/webm'].includes(file.type)) { postNotice('Выбери картинку или видео размером до 50 МБ.'); return; }
@@ -513,7 +579,18 @@ $('save-post').addEventListener('click', async () => {
     mediaPath = uploaded.data.path;
     mediaType = file.type.startsWith('video/') ? 'video' : 'image';
   }
-  const payload = { title, slug, excerpt: body.slice(0, 180), body, media_path: mediaPath, media_type: mediaType, is_published: true, ...(!editingPostId ? { published_at: new Date().toISOString() } : {}) };
+  const tags = [...new Set($('post-tags').value.split(',').map((tag) => tag.trim().toLowerCase().replace(/^#/, '')).filter(Boolean))].slice(0, 8);
+  const mode = $('post-mode').value;
+  const scheduledFor = mode === 'schedule' && $('post-schedule').value ? new Date($('post-schedule').value).toISOString() : null;
+  if (mode === 'schedule' && !scheduledFor) { postNotice('Выбери дату и время для отложенной публикации.'); return; }
+  let existingPublishedAt = null;
+  if (editingPostId) {
+    const { data: current } = await client.from('posts').select('title,slug,excerpt,body,media_path,media_type,tags,is_pinned,is_published,scheduled_for,published_at').eq('id', editingPostId).single();
+    if (current) { existingPublishedAt = current.published_at; await client.from('post_revisions').insert({ post_id: editingPostId, snapshot: current }); }
+  }
+  const isPublished = mode !== 'draft';
+  const publishTime = scheduledFor || (isPublished ? (existingPublishedAt || new Date().toISOString()) : null);
+  const payload = { title, slug, excerpt: body.slice(0, 180), body, media_path: mediaPath, media_type: mediaType, tags, is_pinned: $('post-pinned').checked, is_published: isPublished, scheduled_for: scheduledFor, published_at: publishTime };
   const { error } = editingPostId ? await client.from('posts').update(payload).eq('id', editingPostId) : await client.from('posts').insert(payload);
   if (error) { postNotice('Не удалось опубликовать пост. Текст сохранён в форме — попробуй ещё раз.'); return; }
   postDialog.close();
@@ -525,6 +602,7 @@ $('save-post').addEventListener('click', async () => {
 });
 
 await loadSettings();
+recordPrivacyFriendlyVisit();
 await loadElementEdits();
 await refreshAdmin();
 await loadSiteBlocks();
