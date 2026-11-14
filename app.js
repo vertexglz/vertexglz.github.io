@@ -11,12 +11,41 @@ const reader = $('reader');
 const message = $('admin-message');
 let isAdmin = false;
 let editingPostId = null;
+let editingPostSlug = null;
 let editingMediaPath = null;
 let editingMediaType = null;
 let siteSettings = null;
 let siteBlocks = [];
 let isManaging = false;
 let winterCheckins = [];
+// Give writing a post its own simple window, separate from site settings.
+const postDialog = document.createElement('dialog');
+postDialog.id = 'post-dialog';
+postDialog.innerHTML = '<form id="simple-post-form"><h2 id="post-dialog-title">Новый пост</h2><p>Поделись тем, что у тебя нового.</p><label id="simple-title-label">Название поста</label><label id="simple-body-label">Что внутри</label><label id="simple-media-label">Прикрепить картинку или видео (по желанию)</label><p id="post-form-message" role="status"></p><div class="post-form-actions"><button class="action" type="button" id="post-cancel">Отмена</button></div></form>';
+postDialog.setAttribute('aria-labelledby', 'post-dialog-title');
+document.body.append(postDialog);
+$('post-title').previousElementSibling.remove();
+$('simple-title-label').append($('post-title'));
+$('simple-body-label').append($('post-body'));
+const oldMediaLabel = $('post-media').parentElement;
+$('simple-media-label').append($('post-media'));
+oldMediaLabel.remove();
+['post-slug','post-excerpt'].forEach((id) => $(id).remove());
+$('post-published').parentElement.remove();
+$('simple-post-form').append($('save-post'));
+$('save-post').textContent = 'Опубликовать';
+$('post-title').placeholder = 'О чём этот пост?';
+$('post-body').placeholder = 'Напиши свой текст…';
+$('post-cancel').addEventListener('click', () => postDialog.close());
+$('simple-post-form').addEventListener('submit', (event) => { event.preventDefault(); if (!$('save-post').disabled) $('save-post').click(); });
+function showPostForm() {
+  $('post-dialog-title').textContent = editingPostId ? 'Редактировать пост' : 'Новый пост';
+  $('post-form-message').textContent = '';
+  $('save-post').textContent = editingPostId ? 'Сохранить изменения' : 'Опубликовать';
+  $('admin-modal').classList.add('hidden');
+  postDialog.showModal();
+  $('post-title').focus();
+}
 const visualElements = new Map();
 const savedElementEdits = new Map();
 let selectedVisual = null;
@@ -334,12 +363,9 @@ document.querySelectorAll('[data-feed-filter]').forEach((button) => button.addEv
 }));
 $('timeline-new-post').addEventListener('click', async () => {
   if (!isAdmin) return;
-  isManaging = true; await refreshAdmin();
-  editingPostId = null; editingMediaPath = null; editingMediaType = null;
-  ['post-title','post-slug','post-excerpt','post-body','post-media'].forEach((id) => { $(id).value = ''; });
-  $('post-published').checked = true;
-  $('save-post').textContent = 'СОХРАНИТЬ ПОСТ';
-  $('admin-modal').classList.remove('hidden'); $('post-title').focus();
+  editingPostId = null; editingPostSlug = null; editingMediaPath = null; editingMediaType = null;
+  ['post-title','post-body','post-media'].forEach((id) => { $(id).value = ''; });
+  showPostForm();
 });
 
 async function openPost(post) {
@@ -393,7 +419,7 @@ async function loadAdminTools() {
   $('moderation').innerHTML = `<h3>МОДЕРАЦИЯ</h3>${(pending || []).map((comment) => `<div class="comment"><strong>${escapeHtml(comment.author_name)}</strong>: ${escapeHtml(comment.body)}<br><button class="action" type="button" data-approve="${comment.id}">ОДОБРИТЬ</button> <button class="action" type="button" data-delete-comment="${comment.id}">УДАЛИТЬ</button></div>`).join('') || '<p>Нет комментариев на модерации.</p>'}`;
   document.querySelectorAll('[data-edit-post]').forEach((button) => button.addEventListener('click', () => {
     const post = posts.find((item) => item.id === button.dataset.editPost);
-    editingPostId = post.id; editingMediaPath = post.media_path; editingMediaType = post.media_type; $('post-title').value = post.title; $('post-slug').value = post.slug; $('post-excerpt').value = post.excerpt; $('post-body').value = post.body; $('post-published').checked = post.is_published; $('save-post').textContent = 'ОБНОВИТЬ ПОСТ';
+    editingPostId = post.id; editingPostSlug = post.slug; editingMediaPath = post.media_path; editingMediaType = post.media_type; $('post-title').value = post.title; $('post-body').value = post.body; $('post-media').value = ''; showPostForm();
   }));
   document.querySelectorAll('[data-approve]').forEach((button) => button.addEventListener('click', async () => { await client.from('comments').update({ is_approved: true }).eq('id', button.dataset.approve); loadAdminTools(); }));
   document.querySelectorAll('[data-delete-comment]').forEach((button) => button.addEventListener('click', async () => { await client.from('comments').delete().eq('id', button.dataset.deleteComment); loadAdminTools(); }));
@@ -430,25 +456,34 @@ $('add-block').addEventListener('click', async () => {
   if (!error) { $('new-block-title').value = ''; $('new-block-content').value = ''; loadSiteBlocks(); }
 });
 $('save-post').addEventListener('click', async () => {
+  if (!isAdmin) return;
+  const postNotice = (text) => { $('post-form-message').textContent = text; };
   const title = $('post-title').value.trim();
-  const slug = $('post-slug').value.trim().toLowerCase();
-  const isPublished = $('post-published').checked;
-  if (!title || !slug) { notice('Добавьте заголовок и slug поста.'); return; }
+  const body = $('post-body').value.trim();
+  const slug = editingPostSlug || `post-${crypto.randomUUID()}`;
+  if (!title || !body) { postNotice('Напиши название и текст поста.'); return; }
+  $('save-post').disabled = true;
+  try {
   let mediaPath = editingMediaPath;
   let mediaType = editingMediaType;
   const file = $('post-media').files[0];
   if (file) {
-    if (file.size > 52428800 || !['image/jpeg','image/png','image/webp','image/gif','video/mp4','video/webm'].includes(file.type)) { notice('Поддерживаются только изображения и видео до 50 МБ.'); return; }
+    if (file.size > 52428800 || !['image/jpeg','image/png','image/webp','image/gif','video/mp4','video/webm'].includes(file.type)) { postNotice('Выбери картинку или видео размером до 50 МБ.'); return; }
     const safeName = file.name.toLowerCase().replace(/[^a-z0-9._-]/g, '-');
     const uploaded = await client.storage.from('post-media').upload(`${Date.now()}-${safeName}`, file, { contentType: file.type });
-    if (uploaded.error) { notice('Не удалось загрузить медиафайл.'); return; }
+    if (uploaded.error) { postNotice('Не удалось загрузить файл. Попробуй ещё раз.'); return; }
     mediaPath = uploaded.data.path;
     mediaType = file.type.startsWith('video/') ? 'video' : 'image';
   }
-  const payload = { title, slug, excerpt: $('post-excerpt').value.trim(), body: $('post-body').value.trim(), media_path: mediaPath, media_type: mediaType, is_published: isPublished, published_at: isPublished ? new Date().toISOString() : null };
+  const payload = { title, slug, excerpt: body.slice(0, 180), body, media_path: mediaPath, media_type: mediaType, is_published: true, ...(!editingPostId ? { published_at: new Date().toISOString() } : {}) };
   const { error } = editingPostId ? await client.from('posts').update(payload).eq('id', editingPostId) : await client.from('posts').insert(payload);
-  notice(error ? 'Не удалось сохранить пост. Проверьте slug: только латиница, цифры и дефисы.' : 'Пост сохранён.');
-  if (!error) { ['post-title','post-slug','post-excerpt','post-body','post-media'].forEach((id) => { $(id).value = ''; }); $('post-published').checked = false; editingPostId = null; editingMediaPath = null; editingMediaType = null; $('save-post').textContent = 'СОХРАНИТЬ ПОСТ'; loadPosts(); loadAdminTools(); }
+  if (error) { postNotice('Не удалось опубликовать пост. Текст сохранён в форме — попробуй ещё раз.'); return; }
+  postDialog.close();
+  editingPostId = null; editingPostSlug = null; editingMediaPath = null; editingMediaType = null;
+  await loadPosts();
+  loadAdminTools();
+  } catch { postNotice('Не удалось сохранить. Попробуй ещё раз.'); }
+  finally { $('save-post').disabled = false; }
 });
 
 await loadSettings();
