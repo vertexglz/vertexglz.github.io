@@ -29,6 +29,8 @@
     .tile p { max-width:80%; margin:0; color:var(--muted); font-size:13px; line-height:1.5; font-weight:600; }
     .arrow { position:absolute; right:22px; bottom:19px; color:var(--cyan); font:700 20px 'Space Mono',monospace; }
     .tile::after { content:""; position:absolute; width:110px; height:110px; right:-25px; top:-35px; border:1px solid rgba(48,246,223,.35); border-radius:50%; box-shadow:0 0 35px rgba(48,246,223,.15); }
+    .blog { margin-top:24px; padding:28px; border:1px solid rgba(149,239,246,.68); border-radius:22px; background:rgba(5,20,39,.84); box-shadow:inset 0 1px rgba(255,255,255,.08); }
+    .blog-head { display:flex; align-items:flex-start; justify-content:space-between; gap:18px; margin-bottom:22px; }.blog h2{margin:7px 0 0;font-size:32px;letter-spacing:-.06em}.blog p{color:var(--muted);line-height:1.55}.admin-toggle,.action{border:1px solid var(--cyan);border-radius:10px;padding:10px 14px;background:rgba(48,246,223,.1);color:var(--cyan);font:700 12px Montserrat,sans-serif;cursor:pointer}.admin-toggle:hover,.action:hover{background:var(--cyan);color:#031827}.feed{display:grid;gap:12px}.post-card{width:100%;text-align:left;border:1px solid rgba(159,217,235,.32);border-radius:14px;padding:18px;background:rgba(4,17,36,.7);color:var(--ink);cursor:pointer}.post-card:hover{border-color:var(--cyan)}.post-card h3{margin:4px 0 8px;font-size:20px}.meta{color:var(--cyan);font:700 11px 'Space Mono',monospace}.empty{padding:24px;border:1px dashed rgba(159,217,235,.4);border-radius:14px;color:var(--muted)}.hidden{display:none!important}.reader{margin-top:20px;border-top:1px solid rgba(159,217,235,.25);padding-top:22px}.reader h3{font-size:30px;margin:5px 0 12px}.body-copy{white-space:pre-wrap;line-height:1.7}.comments{margin-top:26px}.comment{border-left:2px solid var(--cyan);padding:9px 12px;margin:10px 0;background:rgba(48,246,223,.05)}.comment strong{font-size:13px}.form-grid{display:grid;gap:10px;margin-top:14px}.form-grid input,.form-grid textarea{width:100%;padding:11px 12px;border:1px solid rgba(159,217,235,.4);border-radius:9px;background:#06152b;color:var(--ink);font:500 14px Montserrat,sans-serif}.form-grid textarea{min-height:105px;resize:vertical}.admin-panel{margin-top:20px;padding:20px;border:1px solid rgba(48,246,223,.55);border-radius:14px;background:rgba(3,27,45,.78)}.admin-panel h3{margin:0 0 8px}.admin-status{font-size:13px;color:var(--muted)}.admin-controls{display:grid;gap:12px}.toast{margin-top:12px;color:var(--cyan);font-size:13px}
     footer { margin-top:30px; color:#c4e1ed; font-size:12px; font-weight:600; display:flex; justify-content:space-between; gap:15px; border-top:1px solid rgba(159,217,235,.28); padding-top:19px; }
     footer b { color:var(--cyan); } .status { font-family:'Space Mono',monospace; color:var(--cyan); }
     @media (max-width:650px) { .shell{width:min(100% - 28px,1040px);padding-top:14px} nav{margin-bottom:42px;overflow:auto;width:100%;justify-content:flex-start} nav a{padding:9px 12px;font-size:10px}.hero{grid-template-columns:1fr;gap:24px}.avatar{justify-self:start;width:120px;height:120px;border-radius:22px} .tiles{grid-template-columns:1fr}.tile{min-height:165px} footer{display:block;line-height:2}.status{display:block} }
@@ -37,7 +39,7 @@
 <body>
   <main class="shell">
     <nav aria-label="Основная навигация">
-      <a href="#home">⌂ ГЛАВНАЯ</a><a href="#about">◉ ОБО МНЕ</a><a href="#projects">⌘ ПРОЕКТЫ</a><a href="#winter-arc">❄ WINTER ARC</a><a href="#blog">✎ МОЙ БЛОГ</a>
+      <a href="#home">⌂ ГЛАВНАЯ</a><a href="#about">◉ ОБО МНЕ</a><a href="#projects">⌘ ПРОЕКТЫ</a><a href="#winter-arc">❄ WINTER ARC</a><a href="#blog-panel">✎ МОЙ БЛОГ</a>
     </nav>
     <section class="hero" id="home">
       <div><div class="eyebrow">// welcome to my digital space</div><h1>vertex<span>glz</span></h1><p class="lead">Личный уголок в сети: эксперименты, код и всё, что рождается поздним вечером под хороший плейлист.</p></div>
@@ -48,9 +50,16 @@
       <a class="tile" id="projects" href="#projects"><div class="number">02 / LAB</div><h2>ПРОЕКТЫ</h2><p>Мои идеи, небольшие эксперименты и штуки, которые хочется показать.</p><span class="arrow">→</span></a>
       <a class="tile" href="#now"><div class="number">03 / NOW</div><h2>СЕЙЧАС</h2><p>То, что я изучаю, слушаю и собираю прямо сейчас.</p><span class="arrow">→</span></a>
       <a class="tile" id="winter-arc" href="#winter-arc"><div class="number">04 / ARC</div><h2>WINTER ARC</h2><p>Зимний режим: фокус, дисциплина и работа над тем, что имеет значение.</p><span class="arrow">→</span></a>
-      <a class="tile" id="blog" href="#blog"><div class="number">05 / LOG</div><h2>МОЙ БЛОГ</h2><p>Заметки, мысли и обновления. Скоро здесь появятся первые посты.</p><span class="arrow">→</span></a>
+      <a class="tile" id="blog" href="#blog-panel"><div class="number">05 / LOG</div><h2>МОЙ БЛОГ</h2><p>Заметки, мысли и обновления. Здесь можно оставлять комментарии.</p><span class="arrow">→</span></a>
+    </section>
+    <section class="blog" id="blog-panel" aria-labelledby="blog-title">
+      <div class="blog-head"><div><div class="eyebrow">05 / PERSONAL LOG</div><h2 id="blog-title">МОЙ БЛОГ</h2><p>Заметки, мысли и обновления. Комментарии появляются после модерации.</p></div><button class="admin-toggle" id="admin-toggle" type="button">ВХОД АДМИНА</button></div>
+      <div class="admin-panel hidden" id="admin-panel"><h3>Панель администратора</h3><p class="admin-status" id="admin-status">Войдите с email и паролем.</p><div class="admin-controls" id="auth-controls"><input id="admin-email" type="email" placeholder="Email администратора" autocomplete="email"><input id="admin-password" type="password" placeholder="Пароль" autocomplete="current-password"><div><button class="action" id="login" type="button">ВОЙТИ</button> <button class="action" id="signup" type="button">СОЗДАТЬ АККАУНТ</button></div></div><div class="admin-controls hidden" id="editor"><input id="post-title" placeholder="Заголовок поста"><input id="post-slug" placeholder="slug-postа-na-latinice"><textarea id="post-excerpt" placeholder="Короткое описание"></textarea><textarea id="post-body" placeholder="Текст поста"></textarea><label><input id="post-published" type="checkbox"> Опубликовать сразу</label><button class="action" id="save-post" type="button">ОПУБЛИКОВАТЬ ПОСТ</button><button class="action" id="logout" type="button">ВЫЙТИ</button></div><div class="toast" id="admin-message" aria-live="polite"></div></div>
+      <div class="feed" id="blog-feed"><div class="empty">Загрузка постов…</div></div>
+      <article class="reader hidden" id="reader"></article>
     </section>
     <footer id="now"><span>Сделано с <b>✦</b> и ночным кодингом</span><span class="status">● ONLINE / 2026</span></footer>
   </main>
+  <script type="module" src="app.js"></script>
 </body>
 </html>
