@@ -13,6 +13,7 @@ let isAdmin = false;
 let editingPostId = null;
 let editingMediaPath = null;
 let editingMediaType = null;
+let siteSettings = null;
 
 function escapeHtml(value = '') {
   return String(value).replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
@@ -25,6 +26,21 @@ function mediaMarkup(path, type) {
   const { data } = client.storage.from('post-media').getPublicUrl(path);
   const url = data.publicUrl;
   return type === 'video' ? `<video class="post-media" controls src="${url}"></video>` : `<img class="post-media" src="${url}" alt="Медиа к посту">`;
+}
+
+function applySettings(settings) {
+  if (!settings) return;
+  siteSettings = settings;
+  $('site-title').textContent = settings.site_title;
+  $('site-tagline').textContent = settings.tagline;
+  document.documentElement.style.setProperty('--cyan', settings.accent_color);
+  $('home').classList.toggle('hidden', !settings.show_hero);
+  $('blog-panel').classList.toggle('hidden', !settings.show_blog);
+}
+
+async function loadSettings() {
+  const { data } = await client.from('site_settings').select('*').eq('id', true).maybeSingle();
+  applySettings(data);
 }
 
 async function loadPosts() {
@@ -59,6 +75,13 @@ async function refreshAdmin() {
   $('editor').classList.toggle('hidden', !isAdmin);
   $('admin-status').textContent = isAdmin ? 'Вы вошли как администратор. Можно создавать посты.' : user ? 'Аккаунт создан, но права администратора ещё не назначены.' : 'Войдите с email и паролем.';
   if (isAdmin) loadAdminTools();
+  if (isAdmin && siteSettings) {
+    $('builder-title').value = siteSettings.site_title;
+    $('builder-tagline').value = siteSettings.tagline;
+    $('builder-accent').value = siteSettings.accent_color;
+    $('builder-hero').checked = siteSettings.show_hero;
+    $('builder-blog').checked = siteSettings.show_blog;
+  }
 }
 
 async function loadAdminTools() {
@@ -83,6 +106,13 @@ $('login').addEventListener('click', async () => {
   if (!error) await refreshAdmin();
 });
 $('logout').addEventListener('click', async () => { await client.auth.signOut(); notice('Вы вышли из аккаунта.'); await refreshAdmin(); });
+$('save-builder').addEventListener('click', async () => {
+  const settings = { site_title: $('builder-title').value.trim(), tagline: $('builder-tagline').value.trim(), accent_color: $('builder-accent').value, show_hero: $('builder-hero').checked, show_blog: $('builder-blog').checked, updated_at: new Date().toISOString() };
+  if (!settings.site_title || !settings.tagline) { notice('Заполните название и подзаголовок.'); return; }
+  const { error } = await client.from('site_settings').update(settings).eq('id', true);
+  notice(error ? 'Не удалось сохранить оформление.' : 'Оформление обновлено.');
+  if (!error) applySettings(settings);
+});
 $('save-post').addEventListener('click', async () => {
   const title = $('post-title').value.trim();
   const slug = $('post-slug').value.trim().toLowerCase();
@@ -105,5 +135,6 @@ $('save-post').addEventListener('click', async () => {
   if (!error) { ['post-title','post-slug','post-excerpt','post-body','post-media'].forEach((id) => { $(id).value = ''; }); $('post-published').checked = false; editingPostId = null; editingMediaPath = null; editingMediaType = null; $('save-post').textContent = 'СОХРАНИТЬ ПОСТ'; loadPosts(); loadAdminTools(); }
 });
 
+await loadSettings();
 await refreshAdmin();
 loadPosts();
