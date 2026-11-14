@@ -17,6 +17,24 @@ let siteSettings = null;
 let siteBlocks = [];
 let isManaging = false;
 
+function setActiveTab(tab, updateHash = false) {
+  const selected = ['blog', 'about', 'projects', 'winter'].includes(tab) ? tab : 'blog';
+  document.querySelectorAll('[data-tab-panel]').forEach((panel) => panel.classList.toggle('active', panel.dataset.tabPanel === selected));
+  document.querySelectorAll('[data-tab]').forEach((link) => {
+    const active = link.dataset.tab === selected;
+    link.classList.toggle('active', active);
+    link.setAttribute('aria-current', active ? 'page' : 'false');
+  });
+  if (updateHash) history.pushState(null, '', `#${selected}`);
+}
+
+document.querySelectorAll('[data-tab]').forEach((link) => link.addEventListener('click', (event) => {
+  event.preventDefault();
+  setActiveTab(link.dataset.tab, true);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}));
+window.addEventListener('hashchange', () => setActiveTab(window.location.hash.slice(1)));
+
 function escapeHtml(value = '') {
   return String(value).replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
 }
@@ -217,3 +235,4 @@ await loadSettings();
 await refreshAdmin();
 await loadSiteBlocks();
 loadPosts();
+setActiveTab(window.location.hash.slice(1));
