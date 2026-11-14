@@ -16,6 +16,60 @@ let editingMediaType = null;
 let siteSettings = null;
 let siteBlocks = [];
 let isManaging = false;
+let winterCheckins = [];
+
+const habits = [
+  { id: 'gym', label: 'Спорт / зал', hint: 'сила и энергия' },
+  { id: 'programming', label: 'Программирование', hint: 'код каждый день' },
+  { id: 'english', label: 'Английский', hint: 'язык и практика' },
+  { id: 'reading', label: 'Чтение', hint: 'несколько страниц' },
+  { id: 'walk', label: 'Прогулка', hint: 'свежая голова' },
+];
+
+function dateKey(date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; }
+function startOfWeek(date) { const result = new Date(date); const day = result.getDay() || 7; result.setDate(result.getDate() - day + 1); result.setHours(0, 0, 0, 0); return result; }
+function addDays(date, amount) { const result = new Date(date); result.setDate(result.getDate() + amount); return result; }
+
+function renderWinterArc() {
+  const today = new Date();
+  const todayKey = dateKey(today);
+  const weekStart = startOfWeek(today);
+  const weekDays = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
+  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+  const monthKey = dateKey(monthStart);
+  const hasCheckin = (activity, date) => winterCheckins.some((checkin) => checkin.activity === activity && checkin.checkin_date === date);
+  const todayDone = winterCheckins.filter((checkin) => checkin.checkin_date === todayKey).length;
+  const weekKeys = weekDays.map(dateKey);
+  const weekDone = winterCheckins.filter((checkin) => weekKeys.includes(checkin.checkin_date)).length;
+  const monthDone = winterCheckins.filter((checkin) => checkin.checkin_date >= monthKey && checkin.checkin_date <= todayKey).length;
+  const expectedMonth = today.getDate() * habits.length;
+  $('arc-dashboard').innerHTML = `<div class="arc-stat"><span>СЕГОДНЯ</span><b>${todayDone} / ${habits.length}</b></div><div class="arc-stat"><span>ЭТА НЕДЕЛЯ</span><b>${weekDone} / ${habits.length * 7}</b></div><div class="arc-stat"><span>ЭТОТ МЕСЯЦ</span><b>${monthDone} / ${expectedMonth}</b></div>`;
+  $('habit-head').innerHTML = `<tr><th>АКТИВНОСТЬ</th>${weekDays.map((date) => `<th>${new Intl.DateTimeFormat('ru-RU', { weekday: 'short' }).format(date)}<br>${date.getDate()}</th>`).join('')}</tr>`;
+  $('habit-body').innerHTML = habits.map((habit) => `<tr><td class="habit-name">${habit.label}<small>${habit.hint}</small></td>${weekDays.map((date) => {
+    const key = dateKey(date); const checked = hasCheckin(habit.id, key);
+    return `<td>${isAdmin ? `<input class="habit-check" type="checkbox" aria-label="${habit.label}, ${key}" data-habit="${habit.id}" data-date="${key}" ${checked ? 'checked' : ''}>` : checked ? '<span class="habit-done" aria-label="Выполнено">✓</span>' : '—'}</td>`;
+  }).join('')}</tr>`).join('');
+  document.querySelectorAll('[data-habit]').forEach((input) => input.addEventListener('change', () => toggleHabit(input.dataset.habit, input.dataset.date, input.checked)));
+}
+
+async function loadWinterArc() {
+  const today = new Date();
+  const weekStart = startOfWeek(today);
+  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+  const from = dateKey(weekStart < monthStart ? weekStart : monthStart);
+  const to = dateKey(addDays(weekStart, 6));
+  const { data, error } = await client.from('winter_arc_checkins').select('activity,checkin_date').gte('checkin_date', from).lte('checkin_date', to);
+  if (!error) { winterCheckins = data || []; renderWinterArc(); }
+}
+
+async function toggleHabit(activity, checkinDate, isChecked) {
+  const query = client.from('winter_arc_checkins');
+  const { error } = isChecked
+    ? await query.insert({ activity, checkin_date: checkinDate })
+    : await query.delete().eq('activity', activity).eq('checkin_date', checkinDate);
+  notice(error ? 'Не удалось обновить отметку.' : 'Прогресс Winter Arc сохранён.');
+  if (!error) loadWinterArc();
+}
 
 function setActiveTab(tab, updateHash = false) {
   const selected = ['blog', 'about', 'projects', 'winter'].includes(tab) ? tab : 'blog';
@@ -154,6 +208,7 @@ async function refreshAdmin() {
   $('editor').classList.toggle('hidden', !isAdmin || !isManaging);
   document.body.classList.toggle('editing-mode', isAdmin && isManaging);
   $('admin-toggle').textContent = isAdmin ? 'РЕЖИМ АДМИНА' : 'ВХОД АДМИНА';
+  $('arc-admin-note').classList.toggle('hidden', !isAdmin);
   $('admin-status').textContent = isAdmin ? (isManaging ? 'Режим управления активен: все изменения сохраняются для посетителей.' : 'Вы вошли как администратор. Выберите режим работы.') : user ? 'Аккаунт создан, но права администратора ещё не назначены.' : 'Войдите с email и паролем.';
   if (isAdmin && isManaging) loadAdminTools();
   if (isAdmin && siteSettings) {
@@ -164,6 +219,7 @@ async function refreshAdmin() {
     $('builder-blog').checked = siteSettings.show_blog;
   }
   renderSiteBlocks();
+  loadWinterArc();
 }
 
 async function loadAdminTools() {
@@ -234,5 +290,6 @@ $('save-post').addEventListener('click', async () => {
 await loadSettings();
 await refreshAdmin();
 await loadSiteBlocks();
+await loadWinterArc();
 loadPosts();
 setActiveTab(window.location.hash.slice(1));
