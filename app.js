@@ -182,7 +182,16 @@ document.querySelectorAll('[data-tab]').forEach((link) => link.addEventListener(
   setActiveTab(link.dataset.tab, true);
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }));
-window.addEventListener('hashchange', () => setActiveTab(window.location.hash.slice(1)));
+async function openRoute() {
+  const hash = window.location.hash.slice(1);
+  setActiveTab(hash);
+  const match = /^post-([0-9a-f-]{36})$/i.exec(hash);
+  if (match) {
+    const { data } = await client.from('posts').select('id,title,body,media_path,media_type,published_at,created_at').eq('id', match[1]).eq('is_published', true).maybeSingle();
+    if (data) await openPost(data);
+  }
+}
+window.addEventListener('hashchange', openRoute);
 
 function escapeHtml(value = '') {
   return String(value).replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
@@ -281,13 +290,56 @@ async function deleteBlock(id) {
   if (!error) loadSiteBlocks();
 }
 
-async function loadPosts() {
-  const { data, error } = await client.from('posts').select('id,title,slug,excerpt,body,media_path,media_type,published_at,created_at').eq('is_published', true).order('published_at', { ascending: false }).limit(5);
-  if (error) { feed.innerHTML = '<div class="empty">Не удалось загрузить блог. Попробуйте позже.</div>'; return; }
-  if (!data.length) { feed.innerHTML = '<div class="empty">Первый пост появится совсем скоро.</div>'; return; }
-  feed.innerHTML = data.map((post) => `<button class="post-card" type="button" data-post-id="${post.id}"><span class="meta">${formatDate(post.published_at || post.created_at)}</span><h3>${escapeHtml(post.title)}</h3><p>${escapeHtml(post.excerpt)}</p></button>`).join('');
-  document.querySelectorAll('[data-post-id]').forEach((button) => button.addEventListener('click', () => openPost(data.find((post) => post.id === button.dataset.postId))));
+let feedFilter = 'all';
+let feedOffset = 0;
+let feedBusy = false;
+let feedVersion = 0;
+async function loadPosts(append = false) {
+  const version = ++feedVersion;
+  if (!append) { feedOffset = 0; reader.classList.add('hidden'); feed.innerHTML = '<div class="empty">Загрузка записей…</div>'; }
+  feedBusy = true;
+  $('timeline-more').disabled = true;
+  let query = client.from('posts').select('id,title,slug,excerpt,body,media_path,media_type,published_at,created_at').eq('is_published', true).order('published_at', { ascending: false }).order('id').range(feedOffset, feedOffset + 5);
+  if (feedFilter === 'media') query = query.not('media_path', 'is', null);
+  const { data, error } = await query;
+  if (version !== feedVersion) return;
+  feedBusy = false;
+  $('timeline-more').disabled = false;
+  if (error) { if (!append) feed.innerHTML = '<div class="empty">Не удалось загрузить ленту. Обнови страницу, чтобы попробовать снова.</div>'; $('timeline-more').textContent = 'Попробовать ещё'; return; }
+  if (!append) feed.innerHTML = '';
+  const posts = (data || []).slice(0, 5);
+  $('timeline-more').classList.toggle('hidden', data.length <= 5);
+  $('timeline-more').textContent = 'Показать ещё';
+  if (!posts.length && !append) feed.innerHTML = `<div class="empty">${feedFilter === 'media' ? 'Фото и видео появятся здесь вместе с новыми записями.' : 'Здесь начинается история.<br>Первой записи пока нет — скоро поделюсь тем, над чем работаю.'}</div>`;
+  posts.forEach((post) => {
+    const article = document.createElement('article');
+    article.className = 'timeline-post'; article.dataset.postId = post.id;
+    const body = post.body || post.excerpt || '';
+    article.innerHTML = `<img class="timeline-avatar" src="assets/pepega-avatar.png" alt="" width="44" height="44"><div><div class="timeline-author"><strong>vertexglz</strong><span>@vertexglz</span><time datetime="${escapeHtml(post.published_at || post.created_at)}">· ${formatDate(post.published_at || post.created_at)}</time></div><h3>${escapeHtml(post.title)}</h3><p class="timeline-text">${escapeHtml(body.slice(0, 700))}</p>${body.length > 700 ? '<button class="timeline-expand" type="button">Читать полностью</button>' : ''}${mediaMarkup(post.media_path, post.media_type)}<div class="timeline-actions"><button type="button" data-discuss>◯ Комментарии</button><button type="button" data-share>↗ Ссылка</button></div></div>`;
+    article.querySelector('.timeline-expand')?.addEventListener('click', (event) => { article.querySelector('.timeline-text').textContent = body; event.currentTarget.remove(); });
+    article.querySelector('[data-discuss]').addEventListener('click', () => openPost(post));
+    article.querySelector('[data-share]').addEventListener('click', async (event) => {
+      const button = event.currentTarget;
+      try { await navigator.clipboard.writeText(`${location.origin}${location.pathname}#post-${post.id}`); button.textContent = 'Скопировано ✓'; } catch { button.textContent = 'Не удалось скопировать'; }
+    });
+    feed.append(article);
+  });
+  feedOffset += posts.length;
 }
+$('timeline-more').addEventListener('click', () => { if (!feedBusy) loadPosts(true); });
+document.querySelectorAll('[data-feed-filter]').forEach((button) => button.addEventListener('click', () => {
+  feedFilter = button.dataset.feedFilter;
+  document.querySelectorAll('[data-feed-filter]').forEach((item) => item.classList.toggle('selected', item === button));
+  loadPosts();
+}));
+$('timeline-new-post').addEventListener('click', async () => {
+  isManaging = true; await refreshAdmin();
+  editingPostId = null; editingMediaPath = null; editingMediaType = null;
+  ['post-title','post-slug','post-excerpt','post-body','post-media'].forEach((id) => { $(id).value = ''; });
+  $('post-published').checked = true;
+  $('save-post').textContent = 'СОХРАНИТЬ ПОСТ';
+  $('admin-modal').classList.remove('hidden'); $('post-title').focus();
+});
 
 async function openPost(post) {
   const { data: comments } = await client.from('comments').select('author_name,body,created_at').eq('post_id', post.id).eq('is_approved', true).order('created_at');
@@ -316,6 +368,7 @@ async function refreshAdmin() {
   $('visual-toolbar').classList.toggle('hidden', !isAdmin || !isManaging);
   $('admin-toggle').textContent = isAdmin ? 'РЕЖИМ АДМИНА' : 'ВХОД АДМИНА';
   $('arc-admin-note').classList.toggle('hidden', !isAdmin);
+  $('timeline-compose').classList.toggle('hidden', !isAdmin);
   $('admin-status').textContent = isAdmin ? (isManaging ? 'Режим управления активен: все изменения сохраняются для посетителей.' : 'Вы вошли как администратор. Выберите режим работы.') : user ? 'Аккаунт создан, но права администратора ещё не назначены.' : 'Войдите с email и паролем.';
   if (isAdmin && isManaging) loadAdminTools();
   if (isAdmin && siteSettings) {
@@ -401,5 +454,5 @@ await loadElementEdits();
 await refreshAdmin();
 await loadSiteBlocks();
 await loadWinterArc();
-loadPosts();
-setActiveTab(window.location.hash.slice(1));
+await loadPosts();
+await openRoute();
