@@ -333,6 +333,7 @@ document.querySelectorAll('[data-feed-filter]').forEach((button) => button.addEv
   loadPosts();
 }));
 $('timeline-new-post').addEventListener('click', async () => {
+  if (!isAdmin) return;
   isManaging = true; await refreshAdmin();
   editingPostId = null; editingMediaPath = null; editingMediaType = null;
   ['post-title','post-slug','post-excerpt','post-body','post-media'].forEach((id) => { $(id).value = ''; });
