@@ -74,11 +74,6 @@ $('login').addEventListener('click', async () => {
   notice(error ? 'Не удалось войти: проверьте email и пароль.' : 'Вход выполнен.');
   if (!error) await refreshAdmin();
 });
-$('signup').addEventListener('click', async () => {
-  const { error } = await client.auth.signUp({ email: $('admin-email').value.trim(), password: $('admin-password').value });
-  notice(error ? 'Не удалось создать аккаунт.' : 'Аккаунт создан. Напишите мне «аккаунт создан», чтобы назначить его администратором.');
-  if (!error) await refreshAdmin();
-});
 $('logout').addEventListener('click', async () => { await client.auth.signOut(); notice('Вы вышли из аккаунта.'); await refreshAdmin(); });
 $('save-post').addEventListener('click', async () => {
   const title = $('post-title').value.trim();
