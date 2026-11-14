@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.56.0';
+import { dateKey, getArcDates } from './arc-dates.js';
 
 const client = createClient(
   'https://alqjzlamqnbfdbtczigm.supabase.co',
@@ -149,41 +150,51 @@ const habits = [
   { id: 'walk', label: 'Прогулка', hint: 'свежая голова' },
 ];
 
-function dateKey(date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; }
-function startOfWeek(date) { const result = new Date(date); const day = result.getDay() || 7; result.setDate(result.getDate() - day + 1); result.setHours(0, 0, 0, 0); return result; }
-function addDays(date, amount) { const result = new Date(date); result.setDate(result.getDate() + amount); return result; }
-
 function renderWinterArc() {
-  const today = new Date();
+  const { today, days: weekDays, weekStart, weekEnd, monthStart } = getArcDates();
   const todayKey = dateKey(today);
-  const weekStart = startOfWeek(today);
-  const weekDays = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
-  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
   const monthKey = dateKey(monthStart);
   const hasCheckin = (activity, date) => winterCheckins.some((checkin) => checkin.activity === activity && checkin.checkin_date === date);
   const todayDone = winterCheckins.filter((checkin) => checkin.checkin_date === todayKey).length;
-  const weekKeys = weekDays.map(dateKey);
-  const weekDone = winterCheckins.filter((checkin) => weekKeys.includes(checkin.checkin_date)).length;
+  const weekDone = winterCheckins.filter((checkin) => checkin.checkin_date >= dateKey(weekStart) && checkin.checkin_date <= dateKey(weekEnd)).length;
   const monthDone = winterCheckins.filter((checkin) => checkin.checkin_date >= monthKey && checkin.checkin_date <= todayKey).length;
-  const expectedMonth = today.getDate() * habits.length;
+  const expectedMonth = today.getUTCDate() * habits.length;
   $('arc-dashboard').innerHTML = `<div class="arc-stat"><span>СЕГОДНЯ</span><b>${todayDone} / ${habits.length}</b></div><div class="arc-stat"><span>ЭТА НЕДЕЛЯ</span><b>${weekDone} / ${habits.length * 7}</b></div><div class="arc-stat"><span>ЭТОТ МЕСЯЦ</span><b>${monthDone} / ${expectedMonth}</b></div>`;
-  $('habit-head').innerHTML = `<tr><th>АКТИВНОСТЬ</th>${weekDays.map((date) => `<th>${new Intl.DateTimeFormat('ru-RU', { weekday: 'short' }).format(date)}<br>${date.getDate()}</th>`).join('')}</tr>`;
+  $('habit-head').innerHTML = `<tr><th>АКТИВНОСТЬ</th>${weekDays.map((date) => `<th class="${dateKey(date) === todayKey ? 'arc-today' : ''}" ${dateKey(date) === todayKey ? 'aria-current="date"' : ''}>${new Intl.DateTimeFormat('ru-RU', { weekday: 'short', timeZone: 'UTC' }).format(date)}<br>${new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', timeZone: 'UTC' }).format(date)}${dateKey(date) === todayKey ? '<small>СЕГОДНЯ</small>' : ''}</th>`).join('')}</tr>`;
   $('habit-body').innerHTML = habits.map((habit) => `<tr><td class="habit-name">${habit.label}<small>${habit.hint}</small></td>${weekDays.map((date) => {
     const key = dateKey(date); const checked = hasCheckin(habit.id, key);
-    return `<td>${isAdmin ? `<input class="habit-check" type="checkbox" aria-label="${habit.label}, ${key}" data-habit="${habit.id}" data-date="${key}" ${checked ? 'checked' : ''}>` : checked ? '<span class="habit-done" aria-label="Выполнено">✓</span>' : '—'}</td>`;
+    return `<td class="${key === todayKey ? 'arc-today' : ''}">${isAdmin ? `<input class="habit-check" type="checkbox" aria-label="${habit.label}, ${key}" data-habit="${habit.id}" data-date="${key}" ${checked ? 'checked' : ''}>` : checked ? '<span class="habit-done" aria-label="Выполнено">✓</span>' : '—'}</td>`;
   }).join('')}</tr>`).join('');
   document.querySelectorAll('[data-habit]').forEach((input) => input.addEventListener('change', () => toggleHabit(input.dataset.habit, input.dataset.date, input.checked)));
 }
 
+let arcLoadedDay = '';
+let arcRequest = 0;
+let arcMidnightTimer;
 async function loadWinterArc() {
-  const today = new Date();
-  const weekStart = startOfWeek(today);
-  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-  const from = dateKey(weekStart < monthStart ? weekStart : monthStart);
-  const to = dateKey(addDays(weekStart, 6));
+  const request = ++arcRequest;
+  const { today, from, to } = getArcDates();
   const { data, error } = await client.from('winter_arc_checkins').select('activity,checkin_date').gte('checkin_date', from).lte('checkin_date', to);
-  if (!error) { winterCheckins = data || []; renderWinterArc(); }
+  if (request !== arcRequest) return;
+  if (!error) { winterCheckins = data || []; arcLoadedDay = dateKey(today); renderWinterArc(); }
 }
+
+function scheduleArcMidnight() {
+  clearTimeout(arcMidnightTimer);
+  const now = new Date();
+  arcMidnightTimer = setTimeout(() => {
+    renderWinterArc();
+    loadWinterArc();
+    scheduleArcMidnight();
+  }, Math.max(100, getArcDates(now).nextMidnight - now + 50));
+}
+function resumeArcCalendar() {
+  if (arcLoadedDay !== dateKey(getArcDates().today)) { renderWinterArc(); loadWinterArc(); }
+  scheduleArcMidnight();
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) resumeArcCalendar(); });
+window.addEventListener('focus', resumeArcCalendar);
+scheduleArcMidnight();
 
 async function toggleHabit(activity, checkinDate, isChecked) {
   const query = client.from('winter_arc_checkins');
