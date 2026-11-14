@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.56.0';
-import { dateKey, getArcDates } from './arc-dates.js';
+import { dateKey, getArcDates, addDays } from './arc-dates.js';
 
 const client = createClient(
   'https://alqjzlamqnbfdbtczigm.supabase.co',
@@ -150,8 +150,15 @@ const habits = [
   { id: 'walk', label: 'Прогулка', hint: 'свежая голова' },
 ];
 
+let arcSelectedDay = null;
+const arcNavigation = document.createElement('div');
+arcNavigation.className = 'arc-navigation';
+arcNavigation.innerHTML = '<div class="arc-navigation-controls"><button class="action" id="arc-prev" type="button" aria-label="На день назад">←</button><button class="action" id="arc-today" type="button">Сегодня</button><button class="action" id="arc-next" type="button" aria-label="На день вперёд">→</button><span id="arc-range"></span></div><p id="arc-status" role="status"></p>';
+document.querySelector('#winter .tracker-wrap').before(arcNavigation);
 function renderWinterArc() {
-  const { today, days: weekDays, weekStart, weekEnd, monthStart } = getArcDates();
+  const { today, days: weekDays, weekStart, weekEnd, monthStart } = getArcDates(new Date(), arcSelectedDay);
+  const labelDate = (date) => new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(date);
+  $('arc-range').textContent = `${labelDate(weekDays[0])} — ${labelDate(weekDays[6])}`;
   const todayKey = dateKey(today);
   const monthKey = dateKey(monthStart);
   const hasCheckin = (activity, date) => winterCheckins.some((checkin) => checkin.activity === activity && checkin.checkin_date === date);
@@ -173,11 +180,31 @@ let arcRequest = 0;
 let arcMidnightTimer;
 async function loadWinterArc() {
   const request = ++arcRequest;
-  const { today, from, to } = getArcDates();
-  const { data, error } = await client.from('winter_arc_checkins').select('activity,checkin_date').gte('checkin_date', from).lte('checkin_date', to);
+  const { today, days, weekStart, weekEnd, monthStart } = getArcDates(new Date(), arcSelectedDay);
+  $('arc-status').textContent = 'Загрузка отметок…';
+  $('habit-body').setAttribute('aria-busy', 'true');
+  document.querySelectorAll('[data-habit]').forEach((input) => { input.disabled = true; });
+  const statsFrom = dateKey(new Date(Math.min(weekStart, monthStart)));
+  const readRange = (from, to) => client.from('winter_arc_checkins').select('activity,checkin_date').gte('checkin_date', from).lte('checkin_date', to);
+  const results = await Promise.all([readRange(statsFrom, dateKey(weekEnd)), readRange(dateKey(days[0]), dateKey(days[6]))]);
   if (request !== arcRequest) return;
-  if (!error) { winterCheckins = data || []; arcLoadedDay = dateKey(today); renderWinterArc(); }
+  $('habit-body').setAttribute('aria-busy', 'false');
+  if (results.some((result) => result.error)) { $('arc-status').textContent = 'Не удалось загрузить отметки. Нажми «Сегодня» или стрелку, чтобы повторить.'; return; }
+  winterCheckins = [...new Map(results.flatMap((result) => result.data || []).map((item) => [`${item.activity}-${item.checkin_date}`, item])).values()];
+  arcLoadedDay = dateKey(today);
+  renderWinterArc();
+  $('arc-status').textContent = arcSelectedDay ? 'Просмотр истории · статистика выше — за текущие периоды' : 'Текущие даты · московское время';
 }
+
+function shiftArcDay(amount) {
+  const { center } = getArcDates(new Date(), arcSelectedDay);
+  arcSelectedDay = dateKey(addDays(center, amount));
+  if (arcSelectedDay === dateKey(getArcDates().today)) arcSelectedDay = null;
+  loadWinterArc();
+}
+$('arc-prev').addEventListener('click', () => shiftArcDay(-1));
+$('arc-next').addEventListener('click', () => shiftArcDay(1));
+$('arc-today').addEventListener('click', () => { arcSelectedDay = null; loadWinterArc(); });
 
 function scheduleArcMidnight() {
   clearTimeout(arcMidnightTimer);

@@ -5,7 +5,7 @@ export function addDays(date, amount) {
   result.setUTCDate(result.getUTCDate() + amount);
   return result;
 }
-export function getArcDates(now = new Date()) {
+export function getArcDates(now = new Date(), selectedDay = null) {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Europe/Moscow', year: 'numeric', month: '2-digit', day: '2-digit',
   }).formatToParts(now);
@@ -13,10 +13,11 @@ export function getArcDates(now = new Date()) {
   const today = new Date(`${part('year')}-${part('month')}-${part('day')}T00:00:00Z`);
   const weekStart = addDays(today, 1 - (today.getUTCDay() || 7));
   const weekEnd = addDays(weekStart, 6);
-  const days = Array.from({ length: 7 }, (_, index) => addDays(today, index - 3));
+  const center = selectedDay ? new Date(`${selectedDay}T00:00:00Z`) : today;
+  const days = Array.from({ length: 7 }, (_, index) => addDays(center, index - 3));
   const monthStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
   const from = dateKey(new Date(Math.min(monthStart, weekStart, days[0])));
   const to = dateKey(new Date(Math.max(weekEnd, days[6])));
   const nextMidnight = new Date(`${dateKey(addDays(today, 1))}T00:00:00+03:00`);
-  return { today, days, weekStart, weekEnd, monthStart, from, to, nextMidnight };
+  return { today, center, days, weekStart, weekEnd, monthStart, from, to, nextMidnight };
 }
