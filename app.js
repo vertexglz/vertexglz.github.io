@@ -17,6 +17,100 @@ let siteSettings = null;
 let siteBlocks = [];
 let isManaging = false;
 let winterCheckins = [];
+const visualElements = new Map();
+const savedElementEdits = new Map();
+let selectedVisual = null;
+// Stable keys are assigned before any remote content changes the page.
+document.querySelectorAll('nav [data-tab], #home h1, #home p, #home .eyebrow, #home img, #about h2, #about p, #about blockquote, #about cite a, #about .trait, #about .about-note, #projects .section-placeholder h2, #projects .section-placeholder p, #winter h2, #winter .section-placeholder > p:first-of-type, #blog-title, #blog-panel .blog-head p, footer > span').forEach((element, index) => {
+  const key = element.id || `page-element-${index}`;
+  element.dataset.visualKey = key;
+  visualElements.set(key, element);
+});
+
+function applyElementProperties(element, properties) {
+  if (typeof properties.text === 'string' && element.tagName !== 'IMG') element.textContent = properties.text;
+  if (element.tagName === 'IMG' && typeof properties.src === 'string' && /^(https:\/\/|assets\/)/.test(properties.src)) element.src = properties.src;
+  if (/^#[0-9a-f]{6}$/i.test(properties.color || '')) element.style.color = properties.color;
+  if (Number.isFinite(properties.size) && properties.size >= 8 && properties.size <= 120) element.style.fontSize = `${properties.size}px`;
+  if (['left', 'center', 'right'].includes(properties.align)) element.style.textAlign = properties.align;
+}
+
+async function loadElementEdits() {
+  const { data, error } = await client.from('site_element_edits').select('element_key,properties');
+  if (!error) (data || []).forEach((row) => {
+    savedElementEdits.set(row.element_key, row.properties);
+    const element = visualElements.get(row.element_key);
+    if (element) applyElementProperties(element, row.properties);
+  });
+}
+
+function openElementEditor(element) {
+  selectedVisual = element;
+  const image = element.tagName === 'IMG';
+  $('element-text-label').classList.toggle('hidden', image);
+  $('element-image-label').classList.toggle('hidden', !image);
+  $('element-text').value = element.textContent;
+  $('element-image').value = image ? element.getAttribute('src') : '';
+  const style = getComputedStyle(element);
+  const rgb = style.color.match(/\d+/g);
+  $('element-color').value = rgb ? `#${rgb.slice(0, 3).map((part) => Number(part).toString(16).padStart(2, '0')).join('')}` : '#e9f8ff';
+  $('element-size').value = Math.round(parseFloat(style.fontSize));
+  $('element-align').value = ['left', 'center', 'right'].includes(style.textAlign) ? style.textAlign : 'left';
+  $('element-status').textContent = '';
+  $('element-dialog').showModal();
+}
+
+document.addEventListener('click', async (event) => {
+  if (!isAdmin || !isManaging || event.target.closest('#admin-modal, #element-dialog, #visual-toolbar')) return;
+  const postCard = event.target.closest('[data-post-id]');
+  if (postCard) {
+    event.preventDefault(); event.stopImmediatePropagation();
+    await loadAdminTools();
+    $('admin-modal').classList.remove('hidden');
+    document.querySelector(`[data-edit-post="${postCard.dataset.postId}"]`)?.click();
+    $('post-title').focus();
+    return;
+  }
+  const element = event.target.closest('[data-visual-key]');
+  if (!element) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  openElementEditor(element);
+}, true);
+$('element-cancel').addEventListener('click', () => $('element-dialog').close());
+$('element-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!isAdmin || !isManaging || !selectedVisual) return;
+  const element = selectedVisual;
+  const properties = { text: $('element-text').value, src: $('element-image').value.trim(), color: $('element-color').value, size: Number($('element-size').value), align: $('element-align').value };
+  if (element.tagName === 'IMG' && !/^(https:\/\/|assets\/)/.test(properties.src)) { $('element-status').textContent = 'Укажи HTTPS-адрес изображения.'; return; }
+  const button = event.submitter;
+  button.disabled = true;
+  try {
+    let result;
+    if (element.dataset.blockId) {
+      result = await client.from('site_blocks').update({ [element.dataset.blockField]: properties.text, updated_at: new Date().toISOString() }).eq('id', element.dataset.blockId).select('id').single();
+      if (result.error) throw result.error;
+      const block = siteBlocks.find((item) => item.id === element.dataset.blockId);
+      if (block) block[element.dataset.blockField] = properties.text;
+      result = await client.from('site_element_edits').upsert({ element_key: element.dataset.visualKey, properties, updated_at: new Date().toISOString() }).select('element_key').single();
+    } else {
+      result = await client.from('site_element_edits').upsert({ element_key: element.dataset.visualKey, properties, updated_at: new Date().toISOString() }).select('element_key').single();
+    }
+    if (result.error) throw result.error;
+    savedElementEdits.set(element.dataset.visualKey, properties);
+    applyElementProperties(element, properties);
+    $('element-dialog').close();
+  } catch { $('element-status').textContent = 'Не удалось сохранить. Изменения остались в окне — попробуй ещё раз.'; }
+  finally { button.disabled = false; }
+});
+$('visual-settings').addEventListener('click', () => $('admin-modal').classList.remove('hidden'));
+const visualPageSelect = document.createElement('select');
+visualPageSelect.setAttribute('aria-label', 'Вкладка для редактирования');
+visualPageSelect.innerHTML = '<option value="blog">Блог</option><option value="about">Обо мне</option><option value="projects">Проекты</option><option value="winter">Winter Arc</option>';
+visualPageSelect.addEventListener('change', () => setActiveTab(visualPageSelect.value, true));
+$('visual-toolbar').prepend(visualPageSelect);
+$('visual-exit').addEventListener('click', async () => { isManaging = false; await refreshAdmin(); });
 
 const habits = [
   { id: 'gym', label: 'Спорт / зал', hint: 'сила и энергия' },
@@ -73,6 +167,7 @@ async function toggleHabit(activity, checkinDate, isChecked) {
 
 function setActiveTab(tab, updateHash = false) {
   const selected = ['blog', 'about', 'projects', 'winter'].includes(tab) ? tab : 'blog';
+  visualPageSelect.value = selected;
   document.querySelectorAll('[data-tab-panel]').forEach((panel) => panel.classList.toggle('active', panel.dataset.tabPanel === selected));
   document.querySelectorAll('[data-tab]').forEach((link) => {
     const active = link.dataset.tab === selected;
@@ -123,6 +218,17 @@ function renderSiteBlocks() {
   container.innerHTML = visible.map((block) => block.block_type === 'heading'
     ? `<section class="site-block"><h2>${escapeHtml(block.title || block.content)}</h2>${block.content && block.title ? `<p>${escapeHtml(block.content)}</p>` : ''}</section>`
     : `<section class="site-block"><h2>${escapeHtml(block.title)}</h2><p>${escapeHtml(block.content)}</p></section>`).join('');
+  container.querySelectorAll('.site-block').forEach((section, index) => {
+    ['h2', 'p'].forEach((tag) => {
+      const element = section.querySelector(tag);
+      if (!element) return;
+      element.dataset.visualKey = `block-${visible[index].id}-${tag}`;
+      element.dataset.blockId = visible[index].id;
+      element.dataset.blockField = tag === 'h2' && (visible[index].title || visible[index].block_type !== 'heading') ? 'title' : 'content';
+      const saved = savedElementEdits.get(element.dataset.visualKey);
+      if (saved) { const { text, ...appearance } = saved; applyElementProperties(element, appearance); }
+    });
+  });
 }
 
 async function loadSiteBlocks() {
@@ -207,6 +313,7 @@ async function refreshAdmin() {
   $('mode-picker').classList.toggle('hidden', !isAdmin || isManaging);
   $('editor').classList.toggle('hidden', !isAdmin || !isManaging);
   document.body.classList.toggle('editing-mode', isAdmin && isManaging);
+  $('visual-toolbar').classList.toggle('hidden', !isAdmin || !isManaging);
   $('admin-toggle').textContent = isAdmin ? 'РЕЖИМ АДМИНА' : 'ВХОД АДМИНА';
   $('arc-admin-note').classList.toggle('hidden', !isAdmin);
   $('admin-status').textContent = isAdmin ? (isManaging ? 'Режим управления активен: все изменения сохраняются для посетителей.' : 'Вы вошли как администратор. Выберите режим работы.') : user ? 'Аккаунт создан, но права администратора ещё не назначены.' : 'Войдите с email и паролем.';
@@ -250,7 +357,7 @@ $('logout').addEventListener('click', signOutAdmin);
 $('logout-editor').addEventListener('click', signOutAdmin);
 $('preview-site').addEventListener('click', () => { isManaging = false; refreshAdmin(); });
 $('exit-manager').addEventListener('click', () => { isManaging = false; refreshAdmin(); });
-$('manage-site').addEventListener('click', async () => { isManaging = true; await refreshAdmin(); await loadSiteBlocks(); });
+$('manage-site').addEventListener('click', async () => { isManaging = true; await refreshAdmin(); await loadSiteBlocks(); $('admin-modal').classList.add('hidden'); });
 $('save-builder').addEventListener('click', async () => {
   const settings = { site_title: $('builder-title').value.trim(), tagline: $('builder-tagline').value.trim(), accent_color: $('builder-accent').value, show_hero: $('builder-hero').checked, show_blog: $('builder-blog').checked, updated_at: new Date().toISOString() };
   if (!settings.site_title || !settings.tagline) { notice('Заполните название и подзаголовок.'); return; }
@@ -290,6 +397,7 @@ $('save-post').addEventListener('click', async () => {
 });
 
 await loadSettings();
+await loadElementEdits();
 await refreshAdmin();
 await loadSiteBlocks();
 await loadWinterArc();
