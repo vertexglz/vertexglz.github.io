@@ -11,6 +11,8 @@ const reader = $('reader');
 const message = $('admin-message');
 let isAdmin = false;
 let editingPostId = null;
+let editingMediaPath = null;
+let editingMediaType = null;
 
 function escapeHtml(value = '') {
   return String(value).replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
@@ -18,9 +20,15 @@ function escapeHtml(value = '') {
 
 function notice(text) { message.textContent = text; }
 function formatDate(value) { return new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium' }).format(new Date(value)); }
+function mediaMarkup(path, type) {
+  if (!path) return '';
+  const { data } = client.storage.from('post-media').getPublicUrl(path);
+  const url = data.publicUrl;
+  return type === 'video' ? `<video class="post-media" controls src="${url}"></video>` : `<img class="post-media" src="${url}" alt="Медиа к посту">`;
+}
 
 async function loadPosts() {
-  const { data, error } = await client.from('posts').select('id,title,slug,excerpt,body,published_at,created_at').eq('is_published', true).order('published_at', { ascending: false }).limit(5);
+  const { data, error } = await client.from('posts').select('id,title,slug,excerpt,body,media_path,media_type,published_at,created_at').eq('is_published', true).order('published_at', { ascending: false }).limit(5);
   if (error) { feed.innerHTML = '<div class="empty">Не удалось загрузить блог. Попробуйте позже.</div>'; return; }
   if (!data.length) { feed.innerHTML = '<div class="empty">Первый пост появится совсем скоро.</div>'; return; }
   feed.innerHTML = data.map((post) => `<button class="post-card" type="button" data-post-id="${post.id}"><span class="meta">${formatDate(post.published_at || post.created_at)}</span><h3>${escapeHtml(post.title)}</h3><p>${escapeHtml(post.excerpt)}</p></button>`).join('');
@@ -30,7 +38,7 @@ async function loadPosts() {
 async function openPost(post) {
   const { data: comments } = await client.from('comments').select('author_name,body,created_at').eq('post_id', post.id).eq('is_approved', true).order('created_at');
   reader.classList.remove('hidden');
-  reader.innerHTML = `<span class="meta">${formatDate(post.published_at || post.created_at)}</span><h3>${escapeHtml(post.title)}</h3><div class="body-copy">${escapeHtml(post.body)}</div><section class="comments"><h3>КОММЕНТАРИИ</h3><div>${(comments || []).map((comment) => `<div class="comment"><strong>${escapeHtml(comment.author_name)}</strong><br>${escapeHtml(comment.body)}</div>`).join('') || '<p>Пока нет комментариев.</p>'}</div><form class="form-grid" id="comment-form"><input id="comment-name" maxlength="80" required placeholder="Ваше имя"><textarea id="comment-body" maxlength="2000" required placeholder="Ваш комментарий"></textarea><button class="action">ОТПРАВИТЬ НА МОДЕРАЦИЮ</button><span class="toast" id="comment-message"></span></form></section>`;
+  reader.innerHTML = `<span class="meta">${formatDate(post.published_at || post.created_at)}</span><h3>${escapeHtml(post.title)}</h3><div class="body-copy">${escapeHtml(post.body)}</div>${mediaMarkup(post.media_path, post.media_type)}<section class="comments"><h3>КОММЕНТАРИИ</h3><div>${(comments || []).map((comment) => `<div class="comment"><strong>${escapeHtml(comment.author_name)}</strong><br>${escapeHtml(comment.body)}</div>`).join('') || '<p>Пока нет комментариев.</p>'}</div><form class="form-grid" id="comment-form"><input id="comment-name" maxlength="80" required placeholder="Ваше имя"><textarea id="comment-body" maxlength="2000" required placeholder="Ваш комментарий"></textarea><button class="action">ОТПРАВИТЬ НА МОДЕРАЦИЮ</button><span class="toast" id="comment-message"></span></form></section>`;
   $('comment-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     const result = await client.from('comments').insert({ post_id: post.id, author_name: $('comment-name').value.trim(), body: $('comment-body').value.trim() });
@@ -55,14 +63,14 @@ async function refreshAdmin() {
 
 async function loadAdminTools() {
   const [{ data: posts }, { data: pending }] = await Promise.all([
-    client.from('posts').select('id,title,slug,excerpt,body,is_published').order('created_at', { ascending: false }),
+    client.from('posts').select('id,title,slug,excerpt,body,media_path,media_type,is_published').order('created_at', { ascending: false }),
     client.from('comments').select('id,author_name,body,post_id,created_at').eq('is_approved', false).order('created_at'),
   ]);
   $('post-manager').innerHTML = `<h3>ПОСТЫ</h3>${(posts || []).map((post) => `<div class="comment"><strong>${escapeHtml(post.title)}</strong><br><button class="action" type="button" data-edit-post="${post.id}">РЕДАКТИРОВАТЬ</button></div>`).join('') || '<p>Постов пока нет.</p>'}`;
   $('moderation').innerHTML = `<h3>МОДЕРАЦИЯ</h3>${(pending || []).map((comment) => `<div class="comment"><strong>${escapeHtml(comment.author_name)}</strong>: ${escapeHtml(comment.body)}<br><button class="action" type="button" data-approve="${comment.id}">ОДОБРИТЬ</button> <button class="action" type="button" data-delete-comment="${comment.id}">УДАЛИТЬ</button></div>`).join('') || '<p>Нет комментариев на модерации.</p>'}`;
   document.querySelectorAll('[data-edit-post]').forEach((button) => button.addEventListener('click', () => {
     const post = posts.find((item) => item.id === button.dataset.editPost);
-    editingPostId = post.id; $('post-title').value = post.title; $('post-slug').value = post.slug; $('post-excerpt').value = post.excerpt; $('post-body').value = post.body; $('post-published').checked = post.is_published; $('save-post').textContent = 'ОБНОВИТЬ ПОСТ';
+    editingPostId = post.id; editingMediaPath = post.media_path; editingMediaType = post.media_type; $('post-title').value = post.title; $('post-slug').value = post.slug; $('post-excerpt').value = post.excerpt; $('post-body').value = post.body; $('post-published').checked = post.is_published; $('save-post').textContent = 'ОБНОВИТЬ ПОСТ';
   }));
   document.querySelectorAll('[data-approve]').forEach((button) => button.addEventListener('click', async () => { await client.from('comments').update({ is_approved: true }).eq('id', button.dataset.approve); loadAdminTools(); }));
   document.querySelectorAll('[data-delete-comment]').forEach((button) => button.addEventListener('click', async () => { await client.from('comments').delete().eq('id', button.dataset.deleteComment); loadAdminTools(); }));
@@ -80,10 +88,21 @@ $('save-post').addEventListener('click', async () => {
   const slug = $('post-slug').value.trim().toLowerCase();
   const isPublished = $('post-published').checked;
   if (!title || !slug) { notice('Добавьте заголовок и slug поста.'); return; }
-  const payload = { title, slug, excerpt: $('post-excerpt').value.trim(), body: $('post-body').value.trim(), is_published: isPublished, published_at: isPublished ? new Date().toISOString() : null };
+  let mediaPath = editingMediaPath;
+  let mediaType = editingMediaType;
+  const file = $('post-media').files[0];
+  if (file) {
+    if (file.size > 52428800 || !['image/jpeg','image/png','image/webp','image/gif','video/mp4','video/webm'].includes(file.type)) { notice('Поддерживаются только изображения и видео до 50 МБ.'); return; }
+    const safeName = file.name.toLowerCase().replace(/[^a-z0-9._-]/g, '-');
+    const uploaded = await client.storage.from('post-media').upload(`${Date.now()}-${safeName}`, file, { contentType: file.type });
+    if (uploaded.error) { notice('Не удалось загрузить медиафайл.'); return; }
+    mediaPath = uploaded.data.path;
+    mediaType = file.type.startsWith('video/') ? 'video' : 'image';
+  }
+  const payload = { title, slug, excerpt: $('post-excerpt').value.trim(), body: $('post-body').value.trim(), media_path: mediaPath, media_type: mediaType, is_published: isPublished, published_at: isPublished ? new Date().toISOString() : null };
   const { error } = editingPostId ? await client.from('posts').update(payload).eq('id', editingPostId) : await client.from('posts').insert(payload);
   notice(error ? 'Не удалось сохранить пост. Проверьте slug: только латиница, цифры и дефисы.' : 'Пост сохранён.');
-  if (!error) { ['post-title','post-slug','post-excerpt','post-body'].forEach((id) => { $(id).value = ''; }); $('post-published').checked = false; editingPostId = null; $('save-post').textContent = 'СОХРАНИТЬ ПОСТ'; loadPosts(); loadAdminTools(); }
+  if (!error) { ['post-title','post-slug','post-excerpt','post-body','post-media'].forEach((id) => { $(id).value = ''; }); $('post-published').checked = false; editingPostId = null; editingMediaPath = null; editingMediaType = null; $('save-post').textContent = 'СОХРАНИТЬ ПОСТ'; loadPosts(); loadAdminTools(); }
 });
 
 await refreshAdmin();
