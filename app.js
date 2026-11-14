@@ -237,7 +237,9 @@ async function loadAdminTools() {
   document.querySelectorAll('[data-delete-comment]').forEach((button) => button.addEventListener('click', async () => { await client.from('comments').delete().eq('id', button.dataset.deleteComment); loadAdminTools(); }));
 }
 
-$('admin-toggle').addEventListener('click', async () => { $('admin-panel').classList.toggle('hidden'); await refreshAdmin(); });
+$('admin-toggle').addEventListener('click', async () => { $('admin-modal').classList.toggle('hidden'); await refreshAdmin(); });
+$('admin-close').addEventListener('click', () => $('admin-modal').classList.add('hidden'));
+$('admin-modal').addEventListener('click', (event) => { if (event.target === $('admin-modal')) $('admin-modal').classList.add('hidden'); });
 $('login').addEventListener('click', async () => {
   const { error } = await client.auth.signInWithPassword({ email: $('admin-email').value.trim(), password: $('admin-password').value });
   notice(error ? 'Не удалось войти: проверьте email и пароль.' : 'Вход выполнен.');
