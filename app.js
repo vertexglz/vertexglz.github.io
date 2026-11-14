@@ -10,6 +10,7 @@ const feed = $('blog-feed');
 const reader = $('reader');
 const message = $('admin-message');
 let isAdmin = false;
+let editingPostId = null;
 
 function escapeHtml(value = '') {
   return String(value).replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
@@ -49,6 +50,22 @@ async function refreshAdmin() {
   $('auth-controls').classList.toggle('hidden', isAdmin);
   $('editor').classList.toggle('hidden', !isAdmin);
   $('admin-status').textContent = isAdmin ? 'Вы вошли как администратор. Можно создавать посты.' : user ? 'Аккаунт создан, но права администратора ещё не назначены.' : 'Войдите с email и паролем.';
+  if (isAdmin) loadAdminTools();
+}
+
+async function loadAdminTools() {
+  const [{ data: posts }, { data: pending }] = await Promise.all([
+    client.from('posts').select('id,title,slug,excerpt,body,is_published').order('created_at', { ascending: false }),
+    client.from('comments').select('id,author_name,body,post_id,created_at').eq('is_approved', false).order('created_at'),
+  ]);
+  $('post-manager').innerHTML = `<h3>ПОСТЫ</h3>${(posts || []).map((post) => `<div class="comment"><strong>${escapeHtml(post.title)}</strong><br><button class="action" type="button" data-edit-post="${post.id}">РЕДАКТИРОВАТЬ</button></div>`).join('') || '<p>Постов пока нет.</p>'}`;
+  $('moderation').innerHTML = `<h3>МОДЕРАЦИЯ</h3>${(pending || []).map((comment) => `<div class="comment"><strong>${escapeHtml(comment.author_name)}</strong>: ${escapeHtml(comment.body)}<br><button class="action" type="button" data-approve="${comment.id}">ОДОБРИТЬ</button> <button class="action" type="button" data-delete-comment="${comment.id}">УДАЛИТЬ</button></div>`).join('') || '<p>Нет комментариев на модерации.</p>'}`;
+  document.querySelectorAll('[data-edit-post]').forEach((button) => button.addEventListener('click', () => {
+    const post = posts.find((item) => item.id === button.dataset.editPost);
+    editingPostId = post.id; $('post-title').value = post.title; $('post-slug').value = post.slug; $('post-excerpt').value = post.excerpt; $('post-body').value = post.body; $('post-published').checked = post.is_published; $('save-post').textContent = 'ОБНОВИТЬ ПОСТ';
+  }));
+  document.querySelectorAll('[data-approve]').forEach((button) => button.addEventListener('click', async () => { await client.from('comments').update({ is_approved: true }).eq('id', button.dataset.approve); loadAdminTools(); }));
+  document.querySelectorAll('[data-delete-comment]').forEach((button) => button.addEventListener('click', async () => { await client.from('comments').delete().eq('id', button.dataset.deleteComment); loadAdminTools(); }));
 }
 
 $('admin-toggle').addEventListener('click', async () => { $('admin-panel').classList.toggle('hidden'); await refreshAdmin(); });
@@ -68,9 +85,10 @@ $('save-post').addEventListener('click', async () => {
   const slug = $('post-slug').value.trim().toLowerCase();
   const isPublished = $('post-published').checked;
   if (!title || !slug) { notice('Добавьте заголовок и slug поста.'); return; }
-  const { error } = await client.from('posts').insert({ title, slug, excerpt: $('post-excerpt').value.trim(), body: $('post-body').value.trim(), is_published: isPublished, published_at: isPublished ? new Date().toISOString() : null });
+  const payload = { title, slug, excerpt: $('post-excerpt').value.trim(), body: $('post-body').value.trim(), is_published: isPublished, published_at: isPublished ? new Date().toISOString() : null };
+  const { error } = editingPostId ? await client.from('posts').update(payload).eq('id', editingPostId) : await client.from('posts').insert(payload);
   notice(error ? 'Не удалось сохранить пост. Проверьте slug: только латиница, цифры и дефисы.' : 'Пост сохранён.');
-  if (!error) { ['post-title','post-slug','post-excerpt','post-body'].forEach((id) => { $(id).value = ''; }); $('post-published').checked = false; loadPosts(); }
+  if (!error) { ['post-title','post-slug','post-excerpt','post-body'].forEach((id) => { $(id).value = ''; }); $('post-published').checked = false; editingPostId = null; $('save-post').textContent = 'СОХРАНИТЬ ПОСТ'; loadPosts(); loadAdminTools(); }
 });
 
 await refreshAdmin();
