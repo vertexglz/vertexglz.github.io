@@ -1,55 +1,55 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Мой первый сайт</title>
-
-    <style>
-        body {
-            margin: 0;
-            font-family: Arial, sans-serif;
-            background: #111827;
-            color: white;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            text-align: center;
-        }
-
-        .container {
-            padding: 30px;
-        }
-
-        h1 {
-            font-size: 42px;
-        }
-
-        p {
-            color: #9ca3af;
-            font-size: 18px;
-        }
-
-        button {
-            padding: 12px 25px;
-            border: none;
-            border-radius: 8px;
-            background: #2563eb;
-            color: white;
-            cursor: pointer;
-        }
-    </style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#06152b">
+  <title>vertexglz — digital space</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;700;800;900&family=Space+Mono:wght@400;700&display=swap');
+    :root { --ink:#e9f8ff; --muted:#9fc4d4; --cyan:#30f6df; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; color:var(--ink); font-family:Montserrat,Arial,sans-serif; background:#06152b; overflow-x:hidden; }
+    body::before { content:""; position:fixed; inset:0; z-index:-2; background:linear-gradient(90deg,rgba(3,13,30,.91) 0%,rgba(3,13,30,.82) 47%,rgba(3,13,30,.94) 100%),url('assets/pepega-wallpaper-1920x1080.png') center/cover no-repeat; }
+    body::after { content:""; position:fixed; inset:0; z-index:-1; opacity:.34; pointer-events:none; background-image:linear-gradient(rgba(48,246,223,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(48,246,223,.07) 1px,transparent 1px); background-size:28px 28px; mask-image:linear-gradient(to bottom,#000,transparent 78%); }
+    .shell { width:min(1040px,calc(100% - 40px)); margin:0 auto; padding:25px 0 50px; }
+    nav { width:fit-content; max-width:100%; margin:0 auto 62px; border:1px solid rgba(177,255,247,.85); border-radius:999px; padding:7px; display:flex; gap:5px; background:rgba(5,20,39,.78); box-shadow:0 0 24px rgba(48,246,223,.14),inset 0 0 14px rgba(48,246,223,.06); }
+    nav a { color:var(--ink); text-decoration:none; padding:11px 17px; border-radius:999px; font-size:12px; font-weight:800; letter-spacing:.08em; white-space:nowrap; transition:.2s; }
+    nav a:first-child,nav a:hover { color:#031827; background:linear-gradient(135deg,#dffffa,#3cf4dc); box-shadow:0 0 15px rgba(48,246,223,.52); }
+    .hero { display:grid; grid-template-columns:1fr 220px; gap:35px; align-items:center; margin-bottom:30px; }
+    .eyebrow { color:var(--cyan); font:700 12px 'Space Mono',monospace; letter-spacing:.16em; text-transform:uppercase; }
+    h1 { margin:10px 0 12px; font-size:clamp(52px,9vw,104px); line-height:.85; letter-spacing:-.085em; font-weight:900; text-shadow:0 0 28px rgba(48,246,223,.25); }
+    h1 span { color:var(--cyan); } .lead { max-width:670px; margin:0; color:#d5ecf5; font-size:16px; line-height:1.65; font-weight:600; }
+    .avatar { justify-self:end; width:190px; height:190px; object-fit:cover; object-position:50% 28%; border-radius:28px; border:2px solid var(--cyan); box-shadow:0 0 0 7px rgba(48,246,223,.12),0 0 38px rgba(48,246,223,.35); }
+    .tiles { display:grid; grid-template-columns:repeat(2,1fr); gap:16px; }
+    .tile { position:relative; min-height:184px; overflow:hidden; padding:25px; border:1px solid rgba(149,239,246,.68); border-radius:22px; background:linear-gradient(130deg,rgba(7,32,58,.95),rgba(5,17,38,.74)); color:var(--ink); text-decoration:none; transition:transform .22s, border-color .22s,box-shadow .22s; box-shadow:inset 0 1px rgba(255,255,255,.08); }
+    .tile:hover { transform:translateY(-5px); border-color:var(--cyan); box-shadow:0 14px 35px rgba(0,0,0,.32),0 0 25px rgba(48,246,223,.17); }
+    .tile .number { color:var(--cyan); font:700 12px 'Space Mono',monospace; letter-spacing:.12em; }
+    .tile h2 { margin:18px 0 9px; font-size:25px; line-height:1; letter-spacing:-.05em; }
+    .tile p { max-width:80%; margin:0; color:var(--muted); font-size:13px; line-height:1.5; font-weight:600; }
+    .arrow { position:absolute; right:22px; bottom:19px; color:var(--cyan); font:700 20px 'Space Mono',monospace; }
+    .tile::after { content:""; position:absolute; width:110px; height:110px; right:-25px; top:-35px; border:1px solid rgba(48,246,223,.35); border-radius:50%; box-shadow:0 0 35px rgba(48,246,223,.15); }
+    footer { margin-top:30px; color:#c4e1ed; font-size:12px; font-weight:600; display:flex; justify-content:space-between; gap:15px; border-top:1px solid rgba(159,217,235,.28); padding-top:19px; }
+    footer b { color:var(--cyan); } .status { font-family:'Space Mono',monospace; color:var(--cyan); }
+    @media (max-width:650px) { .shell{width:min(100% - 28px,1040px);padding-top:14px} nav{margin-bottom:42px;overflow:auto;width:100%;justify-content:flex-start} nav a{padding:9px 12px;font-size:10px}.hero{grid-template-columns:1fr;gap:24px}.avatar{justify-self:start;width:120px;height:120px;border-radius:22px} .tiles{grid-template-columns:1fr}.tile{min-height:165px} footer{display:block;line-height:2}.status{display:block} }
+  </style>
 </head>
-
 <body>
-    <div class="container">
-        <h1>Привет! Это мой сайт 🚀</h1>
-        <p>Добро пожаловать на мою первую веб-страницу.</p>
-
-        <button onclick="alert('Всё работает!')">
-            Нажми меня
-        </button>
-    </div>
+  <main class="shell">
+    <nav aria-label="Основная навигация">
+      <a href="#home">⌂ ГЛАВНАЯ</a><a href="#about">◉ ОБО МНЕ</a><a href="#projects">⌘ ПРОЕКТЫ</a><a href="#contacts">✦ КОНТАКТЫ</a>
+    </nav>
+    <section class="hero" id="home">
+      <div><div class="eyebrow">// welcome to my digital space</div><h1>vertex<span>glz</span></h1><p class="lead">Личный уголок в сети: эксперименты, код и всё, что рождается поздним вечером под хороший плейлист.</p></div>
+      <img class="avatar" src="assets/pepega-avatar.png" alt="Pepega в наушниках">
+    </section>
+    <section class="tiles" aria-label="Разделы сайта">
+      <a class="tile" id="about" href="#about"><div class="number">01 / ABOUT</div><h2>ОБО МНЕ</h2><p>Немного о том, чем я занимаюсь и что меня вдохновляет.</p><span class="arrow">→</span></a>
+      <a class="tile" id="projects" href="#projects"><div class="number">02 / LAB</div><h2>ПРОЕКТЫ</h2><p>Мои идеи, небольшие эксперименты и штуки, которые хочется показать.</p><span class="arrow">→</span></a>
+      <a class="tile" href="#now"><div class="number">03 / NOW</div><h2>СЕЙЧАС</h2><p>То, что я изучаю, слушаю и собираю прямо сейчас.</p><span class="arrow">→</span></a>
+      <a class="tile" id="contacts" href="#contacts"><div class="number">04 / PING</div><h2>КОНТАКТЫ</h2><p>Ссылки и способы связаться со мной появятся здесь совсем скоро.</p><span class="arrow">→</span></a>
+    </section>
+    <footer id="now"><span>Сделано с <b>✦</b> и ночным кодингом</span><span class="status">● ONLINE / 2026</span></footer>
+  </main>
 </body>
 </html>
