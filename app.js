@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.56.0';
-import { dateKey, getArcDates, addDays } from './arc-dates.js';
+import { dateKey, getArcDates, addDays } from './arc-dates.js?v=20261115-calendar-3';
 
 const client = createClient(
   'https://alqjzlamqnbfdbtczigm.supabase.co',
