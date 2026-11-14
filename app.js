@@ -370,6 +370,7 @@ async function refreshAdmin() {
   $('admin-toggle').textContent = isAdmin ? 'РЕЖИМ АДМИНА' : 'ВХОД АДМИНА';
   $('arc-admin-note').classList.toggle('hidden', !isAdmin);
   $('timeline-compose').classList.toggle('hidden', !isAdmin);
+  $('timeline-new-post').classList.toggle('hidden', !isAdmin);
   $('admin-status').textContent = isAdmin ? (isManaging ? 'Режим управления активен: все изменения сохраняются для посетителей.' : 'Вы вошли как администратор. Выберите режим работы.') : user ? 'Аккаунт создан, но права администратора ещё не назначены.' : 'Войдите с email и паролем.';
   if (isAdmin && isManaging) loadAdminTools();
   if (isAdmin && siteSettings) {
