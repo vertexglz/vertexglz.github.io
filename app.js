@@ -20,7 +20,7 @@ function notice(text) { message.textContent = text; }
 function formatDate(value) { return new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium' }).format(new Date(value)); }
 
 async function loadPosts() {
-  const { data, error } = await client.from('posts').select('id,title,slug,excerpt,body,published_at,created_at').eq('is_published', true).order('published_at', { ascending: false });
+  const { data, error } = await client.from('posts').select('id,title,slug,excerpt,body,published_at,created_at').eq('is_published', true).order('published_at', { ascending: false }).limit(5);
   if (error) { feed.innerHTML = '<div class="empty">Не удалось загрузить блог. Попробуйте позже.</div>'; return; }
   if (!data.length) { feed.innerHTML = '<div class="empty">Первый пост появится совсем скоро.</div>'; return; }
   feed.innerHTML = data.map((post) => `<button class="post-card" type="button" data-post-id="${post.id}"><span class="meta">${formatDate(post.published_at || post.created_at)}</span><h3>${escapeHtml(post.title)}</h3><p>${escapeHtml(post.excerpt)}</p></button>`).join('');
