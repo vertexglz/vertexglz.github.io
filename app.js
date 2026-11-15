@@ -443,6 +443,16 @@ function renderTagFilter() {
   $('tag-filter').innerHTML = `<button type="button" class="${!feedTag ? 'selected' : ''}" data-tag-filter="">Все темы</button>${available.map((tag) => `<button type="button" class="${tag === feedTag ? 'selected' : ''}" data-tag-filter="${escapeHtml(tag)}">#${escapeHtml(tag)}</button>`).join('')}`;
   document.querySelectorAll('[data-tag-filter]').forEach((button) => button.addEventListener('click', () => { feedTag = button.dataset.tagFilter; loadPosts(); }));
 }
+async function deletePostFromFeed(post) {
+  if (!isAdmin || !isManaging) return;
+  if (!confirm(`Удалить пост «${post.title}» полностью? Это действие нельзя отменить.`)) return;
+  const { error } = await client.from('posts').delete().eq('id', post.id);
+  if (error) { notice('Не удалось удалить пост.'); return; }
+  notice('Пост удалён из ленты.');
+  reader.classList.add('hidden');
+  await Promise.all([loadPosts(), loadTagCatalog()]);
+  loadAdminTools();
+}
 async function loadPosts(append = false) {
   const version = ++feedVersion;
   if (!append) { feedOffset = 0; reader.classList.add('hidden'); feed.innerHTML = '<div class="empty">Загрузка записей…</div>'; }
@@ -469,6 +479,15 @@ async function loadPosts(append = false) {
     article.innerHTML = `<img class="timeline-avatar" src="assets/pepega-avatar-512.jpg" alt="" width="44" height="44"><div><div class="timeline-author"><strong>vertexglz</strong><span>@vertexglz</span><time datetime="${escapeHtml(post.published_at || post.created_at)}">· ${formatDate(post.published_at || post.created_at)}</time>${post.is_pinned ? '<span class="timeline-pin">⌁ ЗАКРЕПЛЕНО</span>' : ''}</div><h3>${escapeHtml(post.title)}</h3><p class="timeline-text">${escapeHtml(body.slice(0, 700))}</p>${body.length > 700 ? '<button class="timeline-expand" type="button">Читать полностью</button>' : ''}${(post.tags || []).length ? `<div class="timeline-tags">${post.tags.map((tag) => `<button class="post-tag" type="button" data-post-tag="${escapeHtml(tag)}">#${escapeHtml(tag)}</button>`).join('')}</div>` : ''}${mediaMarkup(post.media_path, post.media_type)}<div class="timeline-actions"><button type="button" data-discuss>◯ Комментарии</button><button type="button" data-share>↗ Ссылка</button></div></div>`;
     article.querySelector('.timeline-expand')?.addEventListener('click', (event) => { article.querySelector('.timeline-text').textContent = body; event.currentTarget.remove(); });
     article.querySelector('[data-discuss]').addEventListener('click', () => openPost(post));
+    if (isAdmin && isManaging) {
+      const deleteButton = document.createElement('button');
+      deleteButton.type = 'button';
+      deleteButton.className = 'timeline-delete';
+      deleteButton.textContent = '⌫ Удалить';
+      deleteButton.setAttribute('aria-label', `Удалить пост «${post.title}»`);
+      deleteButton.addEventListener('click', () => deletePostFromFeed(post));
+      article.querySelector('.timeline-actions').append(deleteButton);
+    }
     article.querySelectorAll('[data-post-tag]').forEach((button) => button.addEventListener('click', () => { feedTag = button.dataset.postTag; loadPosts(); }));
     article.querySelector('[data-share]').addEventListener('click', async (event) => {
       const button = event.currentTarget;
@@ -559,7 +578,7 @@ async function loadAdminTools() {
   document.querySelectorAll('[data-preview-post]').forEach((button) => button.addEventListener('click', () => openPost(posts.find((item) => item.id === button.dataset.previewPost))));
   document.querySelectorAll('[data-toggle-post]').forEach((button) => button.addEventListener('click', async () => { const post = posts.find((item) => item.id === button.dataset.togglePost); await client.from('posts').update({ is_published: !post.is_published, scheduled_for: null, published_at: !post.is_published ? new Date().toISOString() : post.published_at }).eq('id', post.id); loadAdminTools(); loadPosts(); }));
   document.querySelectorAll('[data-revert-post]').forEach((button) => button.addEventListener('click', async () => { const { data: revision } = await client.from('post_revisions').select('id,snapshot').eq('post_id', button.dataset.revertPost).order('created_at', { ascending: false }).limit(1).maybeSingle(); if (!revision) { notice('Для этого поста ещё нет сохранённой прошлой версии.'); return; } if (!confirm('Вернуть последнюю сохранённую версию поста?')) return; const { error } = await client.from('posts').update(revision.snapshot).eq('id', button.dataset.revertPost); if (!error) { await client.from('post_revisions').delete().eq('id', revision.id); notice('Прошлая версия поста восстановлена.'); loadAdminTools(); loadPosts(); } }));
-  document.querySelectorAll('[data-delete-post]').forEach((button) => button.addEventListener('click', async () => { const post = posts.find((item) => item.id === button.dataset.deletePost); if (!confirm(`Удалить пост «${post.title}»?`)) return; await client.from('posts').delete().eq('id', post.id); loadAdminTools(); loadPosts(); }));
+  document.querySelectorAll('[data-delete-post]').forEach((button) => button.addEventListener('click', () => deletePostFromFeed(posts.find((item) => item.id === button.dataset.deletePost))));
   document.querySelectorAll('[data-restore-edit]').forEach((button) => button.addEventListener('click', async () => {
     const item = history.find((entry) => entry.id === button.dataset.restoreEdit); if (!item) return;
     const snapshot = item.properties?.kind ? item.properties : { kind: 'element', properties: item.properties };
