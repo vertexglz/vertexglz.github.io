@@ -444,7 +444,7 @@ function renderTagFilter() {
   document.querySelectorAll('[data-tag-filter]').forEach((button) => button.addEventListener('click', () => { feedTag = button.dataset.tagFilter; loadPosts(); }));
 }
 async function deletePostFromFeed(post) {
-  if (!isAdmin || !isManaging) return;
+  if (!isAdmin) return;
   if (!confirm(`Удалить пост «${post.title}» полностью? Это действие нельзя отменить.`)) return;
   const { error } = await client.from('posts').delete().eq('id', post.id);
   if (error) { notice('Не удалось удалить пост.'); return; }
@@ -479,7 +479,7 @@ async function loadPosts(append = false) {
     article.innerHTML = `<img class="timeline-avatar" src="assets/pepega-avatar-512.jpg" alt="" width="44" height="44"><div><div class="timeline-author"><strong>vertexglz</strong><span>@vertexglz</span><time datetime="${escapeHtml(post.published_at || post.created_at)}">· ${formatDate(post.published_at || post.created_at)}</time>${post.is_pinned ? '<span class="timeline-pin">⌁ ЗАКРЕПЛЕНО</span>' : ''}</div><h3>${escapeHtml(post.title)}</h3><p class="timeline-text">${escapeHtml(body.slice(0, 700))}</p>${body.length > 700 ? '<button class="timeline-expand" type="button">Читать полностью</button>' : ''}${(post.tags || []).length ? `<div class="timeline-tags">${post.tags.map((tag) => `<button class="post-tag" type="button" data-post-tag="${escapeHtml(tag)}">#${escapeHtml(tag)}</button>`).join('')}</div>` : ''}${mediaMarkup(post.media_path, post.media_type)}<div class="timeline-actions"><button type="button" data-discuss>◯ Комментарии</button><button type="button" data-share>↗ Ссылка</button></div></div>`;
     article.querySelector('.timeline-expand')?.addEventListener('click', (event) => { article.querySelector('.timeline-text').textContent = body; event.currentTarget.remove(); });
     article.querySelector('[data-discuss]').addEventListener('click', () => openPost(post));
-    if (isAdmin && isManaging) {
+    if (isAdmin) {
       const deleteButton = document.createElement('button');
       deleteButton.type = 'button';
       deleteButton.className = 'timeline-delete';
@@ -528,6 +528,7 @@ async function openPost(post) {
 }
 
 async function refreshAdmin({ reloadArc = true } = {}) {
+  const wasAdmin = isAdmin;
   const { data: { user } } = await client.auth.getUser();
   isAdmin = false;
   if (user) {
@@ -554,6 +555,7 @@ async function refreshAdmin({ reloadArc = true } = {}) {
   }
   renderSiteBlocks();
   if (reloadArc) loadWinterArc();
+  if (wasAdmin !== isAdmin) loadPosts();
 }
 
 async function loadAdminTools() {
