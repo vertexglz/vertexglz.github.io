@@ -20,10 +20,11 @@ let siteBlocks = [];
 let isManaging = false;
 let winterCheckins = [];
 let winterNote = null;
+let tagCatalog = [];
 // Give writing a post its own simple window, separate from site settings.
 const postDialog = document.createElement('dialog');
 postDialog.id = 'post-dialog';
-postDialog.innerHTML = '<form id="simple-post-form"><h2 id="post-dialog-title">Новый пост</h2><p>Поделись тем, что у тебя нового.</p><label id="simple-title-label">Название поста</label><label id="simple-body-label">Что внутри</label><label id="simple-media-label">Прикрепить картинку или видео (по желанию)</label><details class="post-options"><summary>Дополнительно</summary><label>Темы через запятую<input id="post-tags" maxlength="180" placeholder="разработка, winterarc"></label><label>Режим публикации<select id="post-mode"><option value="publish">Опубликовать сейчас</option><option value="draft">Сохранить черновик</option><option value="schedule">Опубликовать позже</option></select></label><label id="post-schedule-label" class="hidden">Дата и время публикации<input id="post-schedule" type="datetime-local"></label><label><input id="post-pinned" type="checkbox"> Закрепить в начале ленты</label><label id="post-remove-media-label" class="hidden"><input id="post-remove-media" type="checkbox"> Убрать прикреплённый файл</label></details><p id="post-form-message" role="status"></p><div class="post-form-actions"><button class="action" type="button" id="post-cancel">Отмена</button></div></form>';
+postDialog.innerHTML = '<form id="simple-post-form"><h2 id="post-dialog-title">Новый пост</h2><p>Поделись тем, что у тебя нового.</p><label id="simple-title-label">Название поста</label><label id="simple-body-label">Что внутри</label><label id="simple-media-label">Прикрепить картинку или видео (по желанию)</label><details class="post-options"><summary>Дополнительно</summary><label>Темы через запятую<input id="post-tags" maxlength="180" placeholder="разработка, winterarc"></label><label>Режим публикации<select id="post-mode"><option value="publish">Опубликовать сейчас</option><option value="draft">Сохранить черновик</option><option value="schedule">Опубликовать позже</option></select></label><label id="post-schedule-label" class="hidden">Дата и время публикации <small>по МСК</small><input id="post-schedule" type="datetime-local"></label><label><input id="post-pinned" type="checkbox"> Закрепить в начале ленты</label><label id="post-remove-media-label" class="hidden"><input id="post-remove-media" type="checkbox"> Убрать прикреплённый файл</label></details><p id="post-form-message" role="status"></p><div class="post-form-actions"><button class="action" type="button" id="post-cancel">Отмена</button></div></form>';
 postDialog.setAttribute('aria-labelledby', 'post-dialog-title');
 document.body.append(postDialog);
 const adminOverview = document.createElement('section');
@@ -57,26 +58,37 @@ function showPostForm() {
 const visualElements = new Map();
 const savedElementEdits = new Map();
 let selectedVisual = null;
-// Stable keys are assigned before any remote content changes the page.
-document.querySelectorAll('nav [data-tab], #home h1, #home p, #home .eyebrow, #home img, #about h2, #about h3, #about p, #about blockquote, #about cite a, #about .trait, #about .about-note, #about .skill-pills span, #projects .section-placeholder h2, #projects .section-placeholder h3, #projects .section-placeholder p, #projects .project-status, #winter h2, #winter .section-placeholder > p:first-of-type, #blog-title, #blog-panel .blog-head p, footer > span').forEach((element, index) => {
-  const key = element.id || `page-element-${index}`;
+// Semantic keys keep saved edits tied to the same element when the layout changes.
+const visualKeyGroups = [
+  ['nav-tab', 'nav [data-tab]'], ['hero-title', '#home h1'], ['hero-copy', '#home p'], ['hero-eyebrow', '#home .eyebrow'], ['hero-avatar', '#home img'],
+  ['about-title', '#about h2'], ['about-heading', '#about h3'], ['about-copy', '#about p'], ['about-quote', '#about blockquote'], ['about-cite', '#about cite a'],
+  ['about-trait', '#about .trait'], ['about-note', '#about .about-note'], ['about-skill', '#about .skill-pills span'], ['project-title', '#projects .section-placeholder h2'],
+  ['project-heading', '#projects .section-placeholder h3'], ['project-copy', '#projects .section-placeholder p'], ['project-status', '#projects .project-status'],
+  ['winter-title', '#winter h2'], ['winter-copy', '#winter .section-placeholder > p:first-of-type'], ['blog-title', '#blog-title'], ['blog-copy', '#blog-panel .blog-head p'], ['footer', 'footer > span'],
+];
+const legacyVisualKeys = new Map();
+let legacyIndex = 0;
+visualKeyGroups.forEach(([prefix, selector]) => document.querySelectorAll(selector).forEach((element, index) => {
+  const key = element.id || `${prefix}-${index + 1}`;
   element.dataset.visualKey = key;
   visualElements.set(key, element);
-});
+  legacyVisualKeys.set(`page-element-${legacyIndex++}`, key);
+}));
 
 function applyElementProperties(element, properties) {
   if (typeof properties.text === 'string' && element.tagName !== 'IMG') element.textContent = properties.text;
   if (element.tagName === 'IMG' && typeof properties.src === 'string' && /^(https:\/\/|assets\/)/.test(properties.src)) element.src = properties.src;
-  if (/^#[0-9a-f]{6}$/i.test(properties.color || '')) element.style.color = properties.color;
-  if (Number.isFinite(properties.size) && properties.size >= 8 && properties.size <= 120) element.style.fontSize = `${properties.size}px`;
-  if (['left', 'center', 'right'].includes(properties.align)) element.style.textAlign = properties.align;
+  element.style.color = /^#[0-9a-f]{6}$/i.test(properties.color || '') ? properties.color : '';
+  element.style.fontSize = Number.isFinite(properties.size) && properties.size >= 8 && properties.size <= 120 ? `${properties.size}px` : '';
+  element.style.textAlign = ['left', 'center', 'right'].includes(properties.align) ? properties.align : '';
 }
 
 async function loadElementEdits() {
   const { data, error } = await client.from('site_element_edits').select('element_key,properties');
   if (!error) (data || []).forEach((row) => {
-    savedElementEdits.set(row.element_key, row.properties);
-    const element = visualElements.get(row.element_key);
+    const key = legacyVisualKeys.get(row.element_key) || row.element_key;
+    savedElementEdits.set(key, row.properties);
+    const element = visualElements.get(key);
     if (element) applyElementProperties(element, row.properties);
   });
 }
@@ -125,7 +137,10 @@ $('element-form').addEventListener('submit', async (event) => {
   button.disabled = true;
   try {
     let result;
-    const previous = savedElementEdits.get(element.dataset.visualKey) || { text: element.tagName === 'IMG' ? '' : element.textContent, src: element.tagName === 'IMG' ? element.getAttribute('src') : '', color: '', size: 0, align: '' };
+    const previousAppearance = savedElementEdits.get(element.dataset.visualKey) || { color: '', size: 0, align: '' };
+    const previous = element.dataset.blockId
+      ? { kind: 'block', blockId: element.dataset.blockId, blockField: element.dataset.blockField, value: (siteBlocks.find((item) => item.id === element.dataset.blockId) || {})[element.dataset.blockField] || '', appearance: previousAppearance }
+      : { kind: 'element', properties: { ...previousAppearance, text: element.tagName === 'IMG' ? '' : element.textContent, src: element.tagName === 'IMG' ? element.getAttribute('src') : '' } };
     const historyResult = await client.from('site_edit_history').insert({ element_key: element.dataset.visualKey, properties: previous });
     if (historyResult.error) throw historyResult.error;
     if (element.dataset.blockId) {
@@ -179,13 +194,18 @@ function renderWinterArc() {
   $('arc-dashboard').innerHTML = `<div class="arc-stat"><span>СЕГОДНЯ</span><b>${todayDone} / ${habits.length}</b></div><div class="arc-stat"><span>ЭТА НЕДЕЛЯ</span><b>${weekDone} / ${habits.length * 7}</b></div><div class="arc-stat"><span>ЭТОТ МЕСЯЦ</span><b>${monthDone} / ${expectedMonth}</b></div>`;
   const habitScores = habits.map((habit) => ({ ...habit, count: winterCheckins.filter((item) => item.activity === habit.id && item.checkin_date >= monthKey && item.checkin_date <= todayKey).length }));
   const bestHabit = [...habitScores].sort((a, b) => b.count - a.count)[0];
+  const completedDays = new Set(winterCheckins.map((item) => item.checkin_date));
+  const streakStart = completedDays.has(todayKey) ? today : addDays(today, -1);
   let streak = 0;
-  for (let date = today; dateKey(date) >= monthKey; date = addDays(date, -1)) { if (winterCheckins.some((item) => item.checkin_date === dateKey(date))) streak += 1; else break; }
+  for (let date = streakStart; dateKey(date) >= dateKey(addDays(today, -365)); date = addDays(date, -1)) { if (completedDays.has(dateKey(date))) streak += 1; else break; }
+  const historyDays = [...completedDays].sort();
+  let record = 0; let run = 0; let previousDay = '';
+  historyDays.forEach((key) => { run = previousDay && key === dateKey(addDays(new Date(`${previousDay}T00:00:00Z`), 1)) ? run + 1 : 1; record = Math.max(record, run); previousDay = key; });
   const monthPercent = expectedMonth ? Math.round((monthDone / expectedMonth) * 100) : 0;
-  $('arc-insights').innerHTML = `<article class="arc-insight"><span>ТЕМП МЕСЯЦА</span><b>${monthPercent}%</b></article><article class="arc-insight"><span>ЛУЧШИЙ РИТМ</span><b>${bestHabit?.label || '—'} · ${bestHabit?.count || 0}</b></article><article class="arc-insight"><span>СЕРИЯ ДНЕЙ</span><b>${streak} ${streak === 1 ? 'день' : streak >= 2 && streak <= 4 ? 'дня' : 'дней'}</b></article>`;
+  $('arc-insights').innerHTML = `<article class="arc-insight"><span>ТЕМП МЕСЯЦА</span><b>${monthPercent}%</b></article><article class="arc-insight"><span>ЛУЧШИЙ РИТМ</span><b>${bestHabit?.label || '—'} · ${bestHabit?.count || 0}</b></article><article class="arc-insight"><span>СЕРИЯ ДНЕЙ</span><b>${streak} ${streak === 1 ? 'день' : streak >= 2 && streak <= 4 ? 'дня' : 'дней'}</b><small>день засчитывается с любой активностью</small></article><article class="arc-insight"><span>ЛИЧНЫЙ РЕКОРД</span><b>${record || 0} дн.</b><small>за последние 365 дней</small></article>`;
   const monthDays = Array.from({ length: today.getUTCDate() }, (_, index) => addDays(monthStart, index));
   $('arc-heatmap-label').textContent = `${monthDone} действий · ${monthPercent}%`;
-  $('arc-heatmap').innerHTML = monthDays.map((date) => { const done = winterCheckins.filter((item) => item.checkin_date === dateKey(date)).length; const level = done === 0 ? 0 : done < 3 ? 1 : done < 5 ? 2 : 3; return `<div class="heat-cell level-${level}" title="${dateKey(date)}: ${done} из ${habits.length}" aria-label="${dateKey(date)}: ${done} из ${habits.length}">${date.getUTCDate()}</div>`; }).join('');
+  $('arc-heatmap').innerHTML = monthDays.map((date) => { const done = winterCheckins.filter((item) => item.checkin_date === dateKey(date)).length; const level = done === 0 ? 0 : done < 3 ? 1 : done < 5 ? 2 : 3; const height = Math.max(8, Math.round((done / habits.length) * 100)); return `<div class="heat-cell level-${level}" title="${dateKey(date)}: ${done} из ${habits.length}" aria-label="${dateKey(date)}: ${done} из ${habits.length}"><i style="height:${height}%"></i><span>${date.getUTCDate()}</span></div>`; }).join('');
   const selectedKey = arcSelectedDay || todayKey;
   const noteContent = winterNote?.note_date === selectedKey ? winterNote.content : '';
   $('arc-note-card').innerHTML = isAdmin ? `<div class="eyebrow">// DAILY NOTE</div><h3>Заметка дня · ${selectedKey}</h3><p>Коротко зафиксируй, что получилось или что хочешь улучшить.</p><form class="arc-note-form" id="arc-note-form"><textarea id="arc-note-content" maxlength="1000" placeholder="Сегодня я…">${escapeHtml(noteContent)}</textarea><button class="action" type="submit">СОХРАНИТЬ ЗАМЕТКУ</button><span class="toast" id="arc-note-message"></span></form>` : noteContent ? `<div class="eyebrow">// DAILY NOTE</div><h3>Заметка дня</h3><p>${escapeHtml(noteContent)}</p>` : '';
@@ -203,19 +223,19 @@ let arcRequest = 0;
 let arcMidnightTimer;
 async function loadWinterArc() {
   const request = ++arcRequest;
-  const { today, days, weekStart, weekEnd, monthStart } = getArcDates(new Date(), arcSelectedDay);
+  const { today, weekEnd } = getArcDates(new Date(), arcSelectedDay);
   $('arc-status').textContent = 'Загрузка отметок…';
   $('habit-body').setAttribute('aria-busy', 'true');
   document.querySelectorAll('[data-habit]').forEach((input) => { input.disabled = true; });
-  const statsFrom = dateKey(new Date(Math.min(weekStart, monthStart)));
   const readRange = (from, to) => client.from('winter_arc_checkins').select('activity,checkin_date').gte('checkin_date', from).lte('checkin_date', to);
   const selectedKey = arcSelectedDay || dateKey(today);
-  const results = await Promise.all([readRange(statsFrom, dateKey(weekEnd)), readRange(dateKey(days[0]), dateKey(days[6])), client.from('winter_arc_notes').select('note_date,content,updated_at').eq('note_date', selectedKey).maybeSingle()]);
+  const rangeEnd = dateKey(weekEnd > today ? weekEnd : today);
+  const results = await Promise.all([readRange(dateKey(addDays(today, -365)), rangeEnd), client.from('winter_arc_notes').select('note_date,content,updated_at').eq('note_date', selectedKey).maybeSingle()]);
   if (request !== arcRequest) return;
   $('habit-body').setAttribute('aria-busy', 'false');
   if (results.some((result) => result.error)) { $('arc-status').textContent = 'Не удалось загрузить отметки. Нажми «Сегодня» или стрелку, чтобы повторить.'; return; }
-  winterCheckins = [...new Map(results.slice(0, 2).flatMap((result) => result.data || []).map((item) => [`${item.activity}-${item.checkin_date}`, item])).values()];
-  winterNote = results[2].data || null;
+  winterCheckins = results[0].data || [];
+  winterNote = results[1].data || null;
   arcLoadedDay = dateKey(today);
   renderWinterArc();
   $('arc-status').textContent = arcSelectedDay ? 'Просмотр истории · статистика выше — за текущие периоды' : 'Текущие даты · московское время';
@@ -295,6 +315,17 @@ function escapeHtml(value = '') {
   return String(value).replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
 }
 
+function formatMoscowDateTimeInput(value) {
+  if (!value) return '';
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Moscow', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(value));
+  const pick = (type) => parts.find((part) => part.type === type)?.value;
+  return `${pick('year')}-${pick('month')}-${pick('day')}T${pick('hour')}:${pick('minute')}`;
+}
+
+function moscowInputToIso(value) {
+  return value && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value) ? new Date(`${value}:00+03:00`).toISOString() : null;
+}
+
 function notice(text) { message.textContent = text; }
 function formatDate(value) { return new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium' }).format(new Date(value)); }
 function mediaMarkup(path, type) {
@@ -340,8 +371,9 @@ function renderSiteBlocks() {
       element.dataset.visualKey = `block-${visible[index].id}-${tag}`;
       element.dataset.blockId = visible[index].id;
       element.dataset.blockField = tag === 'h2' && (visible[index].title || visible[index].block_type !== 'heading') ? 'title' : 'content';
+      visualElements.set(element.dataset.visualKey, element);
       const saved = savedElementEdits.get(element.dataset.visualKey);
-      if (saved) { const { text, ...appearance } = saved; applyElementProperties(element, appearance); }
+      if (saved) applyElementProperties(element, saved);
     });
   });
 }
@@ -401,11 +433,15 @@ let feedTag = '';
 let feedOffset = 0;
 let feedBusy = false;
 let feedVersion = 0;
-function renderTagFilter(posts = []) {
-  const tags = [...new Set(posts.flatMap((post) => post.tags || []))].slice(0, 8);
-  const available = feedTag && !tags.includes(feedTag) ? [feedTag, ...tags] : tags;
-  $('tag-filter').innerHTML = available.map((tag) => `<button type="button" class="${tag === feedTag ? 'selected' : ''}" data-tag-filter="${escapeHtml(tag)}">#${escapeHtml(tag)}</button>`).join('');
-  document.querySelectorAll('[data-tag-filter]').forEach((button) => button.addEventListener('click', () => { feedTag = feedTag === button.dataset.tagFilter ? '' : button.dataset.tagFilter; loadPosts(); }));
+async function loadTagCatalog() {
+  const { data } = await client.from('posts').select('tags').eq('is_published', true);
+  tagCatalog = [...new Set((data || []).flatMap((post) => post.tags || []))].sort((a, b) => a.localeCompare(b, 'ru')).slice(0, 12);
+  renderTagFilter();
+}
+function renderTagFilter() {
+  const available = feedTag && !tagCatalog.includes(feedTag) ? [feedTag, ...tagCatalog] : tagCatalog;
+  $('tag-filter').innerHTML = `<button type="button" class="${!feedTag ? 'selected' : ''}" data-tag-filter="">Все темы</button>${available.map((tag) => `<button type="button" class="${tag === feedTag ? 'selected' : ''}" data-tag-filter="${escapeHtml(tag)}">#${escapeHtml(tag)}</button>`).join('')}`;
+  document.querySelectorAll('[data-tag-filter]').forEach((button) => button.addEventListener('click', () => { feedTag = button.dataset.tagFilter; loadPosts(); }));
 }
 async function loadPosts(append = false) {
   const version = ++feedVersion;
@@ -422,15 +458,15 @@ async function loadPosts(append = false) {
   if (error) { if (!append) feed.innerHTML = '<div class="empty">Не удалось загрузить ленту. Обнови страницу, чтобы попробовать снова.</div>'; $('timeline-more').textContent = 'Попробовать ещё'; return; }
   if (!append) feed.innerHTML = '';
   const posts = (data || []).slice(0, 5);
-  if (!append) renderTagFilter(data || []);
+  if (!append) renderTagFilter();
   $('timeline-more').classList.toggle('hidden', data.length <= 5);
   $('timeline-more').textContent = 'Показать ещё';
-  if (!posts.length && !append) feed.innerHTML = `<div class="empty">${feedFilter === 'media' ? 'Фото и видео появятся здесь вместе с новыми записями.' : 'Здесь начинается история.<br>Первой записи пока нет — скоро поделюсь тем, над чем работаю.'}</div>`;
+  if (!posts.length && !append) feed.innerHTML = `<div class="empty">${feedTag ? `По теме #${escapeHtml(feedTag)} пока нет записей. Выбери «Все темы», чтобы сбросить фильтр.` : feedFilter === 'media' ? 'Фото и видео появятся здесь вместе с новыми записями.' : 'Здесь начинается история.<br>Первой записи пока нет — скоро поделюсь тем, над чем работаю.'}</div>`;
   posts.forEach((post) => {
     const article = document.createElement('article');
     article.className = `timeline-post${post.is_pinned ? ' pinned' : ''}`; article.dataset.postId = post.id;
     const body = post.body || post.excerpt || '';
-    article.innerHTML = `<img class="timeline-avatar" src="assets/pepega-avatar.png" alt="" width="44" height="44"><div><div class="timeline-author"><strong>vertexglz</strong><span>@vertexglz</span><time datetime="${escapeHtml(post.published_at || post.created_at)}">· ${formatDate(post.published_at || post.created_at)}</time>${post.is_pinned ? '<span class="timeline-pin">⌁ ЗАКРЕПЛЕНО</span>' : ''}</div><h3>${escapeHtml(post.title)}</h3><p class="timeline-text">${escapeHtml(body.slice(0, 700))}</p>${body.length > 700 ? '<button class="timeline-expand" type="button">Читать полностью</button>' : ''}${(post.tags || []).length ? `<div class="timeline-tags">${post.tags.map((tag) => `<button class="post-tag" type="button" data-post-tag="${escapeHtml(tag)}">#${escapeHtml(tag)}</button>`).join('')}</div>` : ''}${mediaMarkup(post.media_path, post.media_type)}<div class="timeline-actions"><button type="button" data-discuss>◯ Комментарии</button><button type="button" data-share>↗ Ссылка</button></div></div>`;
+    article.innerHTML = `<img class="timeline-avatar" src="assets/pepega-avatar-512.jpg" alt="" width="44" height="44"><div><div class="timeline-author"><strong>vertexglz</strong><span>@vertexglz</span><time datetime="${escapeHtml(post.published_at || post.created_at)}">· ${formatDate(post.published_at || post.created_at)}</time>${post.is_pinned ? '<span class="timeline-pin">⌁ ЗАКРЕПЛЕНО</span>' : ''}</div><h3>${escapeHtml(post.title)}</h3><p class="timeline-text">${escapeHtml(body.slice(0, 700))}</p>${body.length > 700 ? '<button class="timeline-expand" type="button">Читать полностью</button>' : ''}${(post.tags || []).length ? `<div class="timeline-tags">${post.tags.map((tag) => `<button class="post-tag" type="button" data-post-tag="${escapeHtml(tag)}">#${escapeHtml(tag)}</button>`).join('')}</div>` : ''}${mediaMarkup(post.media_path, post.media_type)}<div class="timeline-actions"><button type="button" data-discuss>◯ Комментарии</button><button type="button" data-share>↗ Ссылка</button></div></div>`;
     article.querySelector('.timeline-expand')?.addEventListener('click', (event) => { article.querySelector('.timeline-text').textContent = body; event.currentTarget.remove(); });
     article.querySelector('[data-discuss]').addEventListener('click', () => openPost(post));
     article.querySelectorAll('[data-post-tag]').forEach((button) => button.addEventListener('click', () => { feedTag = button.dataset.postTag; loadPosts(); }));
@@ -459,19 +495,20 @@ $('timeline-new-post').addEventListener('click', async () => {
 async function openPost(post) {
   const { data: comments } = await client.from('comments').select('author_name,body,created_at').eq('post_id', post.id).eq('is_approved', true).order('created_at');
   reader.classList.remove('hidden');
-  reader.innerHTML = `<span class="meta">${formatDate(post.published_at || post.created_at)}</span><h3>${escapeHtml(post.title)}</h3>${(post.tags || []).length ? `<div class="timeline-tags">${post.tags.map((tag) => `<span class="post-tag">#${escapeHtml(tag)}</span>`).join('')}</div>` : ''}<div class="body-copy">${escapeHtml(post.body)}</div>${mediaMarkup(post.media_path, post.media_type)}<section class="comments"><h3>КОММЕНТАРИИ</h3><div>${(comments || []).map((comment) => `<div class="comment"><strong>${escapeHtml(comment.author_name)}</strong><br>${escapeHtml(comment.body)}</div>`).join('') || '<p>Пока нет комментариев.</p>'}</div><form class="form-grid" id="comment-form"><input id="comment-website" class="comment-website" tabindex="-1" autocomplete="off" aria-hidden="true"><input id="comment-name" maxlength="80" required placeholder="Ваше имя"><textarea id="comment-body" maxlength="2000" required placeholder="Ваш комментарий"></textarea><button class="action">ОТПРАВИТЬ НА МОДЕРАЦИЮ</button><span class="toast" id="comment-message"></span></form></section>`;
+  reader.innerHTML = `<button class="timeline-expand" type="button" id="reader-back">← К ЛЕНТЕ</button><span class="meta">${formatDate(post.published_at || post.created_at)}</span><h3>${escapeHtml(post.title)}</h3>${(post.tags || []).length ? `<div class="timeline-tags">${post.tags.map((tag) => `<span class="post-tag">#${escapeHtml(tag)}</span>`).join('')}</div>` : ''}<div class="body-copy">${escapeHtml(post.body)}</div>${mediaMarkup(post.media_path, post.media_type)}<section class="comments"><h3>КОММЕНТАРИИ</h3><div>${(comments || []).map((comment) => `<div class="comment"><strong>${escapeHtml(comment.author_name)}</strong><br>${escapeHtml(comment.body)}</div>`).join('') || '<p>Пока нет комментариев.</p>'}</div><form class="form-grid" id="comment-form"><input id="comment-website" class="comment-website" tabindex="-1" autocomplete="off" aria-hidden="true"><input id="comment-name" maxlength="80" required placeholder="Ваше имя"><textarea id="comment-body" maxlength="2000" required placeholder="Ваш комментарий"></textarea><button class="action">ОТПРАВИТЬ НА МОДЕРАЦИЮ</button><span class="toast" id="comment-message"></span></form></section>`;
+  $('reader-back').addEventListener('click', () => { reader.classList.add('hidden'); history.replaceState(null, '', '#blog'); window.scrollTo({ top: $('blog-panel').offsetTop - 20, behavior: 'smooth' }); });
   $('comment-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     const lastCommentAt = Number(localStorage.getItem('vertexglz-last-comment-at') || 0);
     if ($('comment-website').value || Date.now() - lastCommentAt < 45_000) { $('comment-message').textContent = 'Попробуй отправить комментарий чуть позже.'; return; }
     const result = await client.from('comments').insert({ post_id: post.id, author_name: $('comment-name').value.trim(), body: $('comment-body').value.trim(), website: '' });
-    $('comment-message').textContent = result.error ? 'Не удалось отправить комментарий.' : 'Спасибо! Комментарий отправлен на модерацию.';
+    $('comment-message').textContent = result.error ? (result.error.message?.includes('comment_rate_limit') ? 'Слишком часто: попробуй снова через минуту.' : 'Не удалось отправить комментарий.') : 'Спасибо! Комментарий отправлен на модерацию.';
     if (!result.error) { localStorage.setItem('vertexglz-last-comment-at', String(Date.now())); event.target.reset(); }
   });
   reader.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-async function refreshAdmin() {
+async function refreshAdmin({ reloadArc = true } = {}) {
   const { data: { user } } = await client.auth.getUser();
   isAdmin = false;
   if (user) {
@@ -497,7 +534,7 @@ async function refreshAdmin() {
     $('builder-blog').checked = siteSettings.show_blog;
   }
   renderSiteBlocks();
-  loadWinterArc();
+  if (reloadArc) loadWinterArc();
 }
 
 async function loadAdminTools() {
@@ -517,13 +554,28 @@ async function loadAdminTools() {
   $('edit-history').innerHTML = `<h3>ПОСЛЕДНИЕ ПРАВКИ САЙТА</h3>${(history || []).map((item) => `<div class="comment"><small>${escapeHtml(item.element_key)} · ${formatDate(item.created_at)}</small><br><button class="action" type="button" data-restore-edit="${item.id}">ОТКАТИТЬ К ЭТОЙ ВЕРСИИ</button></div>`).join('') || '<p class="admin-status">История появится после первой правки элемента.</p>'}`;
   document.querySelectorAll('[data-edit-post]').forEach((button) => button.addEventListener('click', () => {
     const post = posts.find((item) => item.id === button.dataset.editPost);
-    editingPostId = post.id; editingPostSlug = post.slug; editingMediaPath = post.media_path; editingMediaType = post.media_type; $('post-title').value = post.title; $('post-body').value = post.body; $('post-media').value = ''; $('post-tags').value = (post.tags || []).join(', '); $('post-pinned').checked = post.is_pinned; $('post-remove-media').checked = false; $('post-mode').value = post.is_published ? (post.scheduled_for && new Date(post.scheduled_for) > new Date() ? 'schedule' : 'publish') : 'draft'; $('post-schedule').value = post.scheduled_for ? new Date(post.scheduled_for).toISOString().slice(0, 16) : ''; $('post-schedule-label').classList.toggle('hidden', $('post-mode').value !== 'schedule'); showPostForm();
+    editingPostId = post.id; editingPostSlug = post.slug; editingMediaPath = post.media_path; editingMediaType = post.media_type; $('post-title').value = post.title; $('post-body').value = post.body; $('post-media').value = ''; $('post-tags').value = (post.tags || []).join(', '); $('post-pinned').checked = post.is_pinned; $('post-remove-media').checked = false; $('post-mode').value = post.is_published ? (post.scheduled_for && new Date(post.scheduled_for) > new Date() ? 'schedule' : 'publish') : 'draft'; $('post-schedule').value = formatMoscowDateTimeInput(post.scheduled_for); $('post-schedule-label').classList.toggle('hidden', $('post-mode').value !== 'schedule'); showPostForm();
   }));
   document.querySelectorAll('[data-preview-post]').forEach((button) => button.addEventListener('click', () => openPost(posts.find((item) => item.id === button.dataset.previewPost))));
   document.querySelectorAll('[data-toggle-post]').forEach((button) => button.addEventListener('click', async () => { const post = posts.find((item) => item.id === button.dataset.togglePost); await client.from('posts').update({ is_published: !post.is_published, scheduled_for: null, published_at: !post.is_published ? new Date().toISOString() : post.published_at }).eq('id', post.id); loadAdminTools(); loadPosts(); }));
   document.querySelectorAll('[data-revert-post]').forEach((button) => button.addEventListener('click', async () => { const { data: revision } = await client.from('post_revisions').select('id,snapshot').eq('post_id', button.dataset.revertPost).order('created_at', { ascending: false }).limit(1).maybeSingle(); if (!revision) { notice('Для этого поста ещё нет сохранённой прошлой версии.'); return; } if (!confirm('Вернуть последнюю сохранённую версию поста?')) return; const { error } = await client.from('posts').update(revision.snapshot).eq('id', button.dataset.revertPost); if (!error) { await client.from('post_revisions').delete().eq('id', revision.id); notice('Прошлая версия поста восстановлена.'); loadAdminTools(); loadPosts(); } }));
   document.querySelectorAll('[data-delete-post]').forEach((button) => button.addEventListener('click', async () => { const post = posts.find((item) => item.id === button.dataset.deletePost); if (!confirm(`Удалить пост «${post.title}»?`)) return; await client.from('posts').delete().eq('id', post.id); loadAdminTools(); loadPosts(); }));
-  document.querySelectorAll('[data-restore-edit]').forEach((button) => button.addEventListener('click', async () => { const item = history.find((entry) => entry.id === button.dataset.restoreEdit); if (!item) return; const { error } = await client.from('site_element_edits').upsert({ element_key: item.element_key, properties: item.properties, updated_at: new Date().toISOString() }); if (!error) { const element = visualElements.get(item.element_key); if (element) applyElementProperties(element, item.properties); savedElementEdits.set(item.element_key, item.properties); notice('Версия элемента восстановлена.'); } }));
+  document.querySelectorAll('[data-restore-edit]').forEach((button) => button.addEventListener('click', async () => {
+    const item = history.find((entry) => entry.id === button.dataset.restoreEdit); if (!item) return;
+    const snapshot = item.properties?.kind ? item.properties : { kind: 'element', properties: item.properties };
+    let error;
+    if (snapshot.kind === 'block') {
+      ({ error } = await client.from('site_blocks').update({ [snapshot.blockField]: snapshot.value, updated_at: new Date().toISOString() }).eq('id', snapshot.blockId));
+      if (!error) { const block = siteBlocks.find((entry) => entry.id === snapshot.blockId); if (block) block[snapshot.blockField] = snapshot.value; }
+      if (!error) ({ error } = await client.from('site_element_edits').upsert({ element_key: item.element_key, properties: snapshot.appearance || {}, updated_at: new Date().toISOString() }));
+    } else ({ error } = await client.from('site_element_edits').upsert({ element_key: item.element_key, properties: snapshot.properties || {}, updated_at: new Date().toISOString() }));
+    if (error) { notice('Не удалось восстановить версию.'); return; }
+    const properties = snapshot.kind === 'block' ? { ...(snapshot.appearance || {}), text: snapshot.value } : (snapshot.properties || {});
+    savedElementEdits.set(item.element_key, properties);
+    const element = visualElements.get(item.element_key); if (element) applyElementProperties(element, properties);
+    if (snapshot.kind === 'block') renderSiteBlocks();
+    notice('Версия элемента восстановлена.');
+  }));
   document.querySelectorAll('[data-approve]').forEach((button) => button.addEventListener('click', async () => { await client.from('comments').update({ is_approved: true }).eq('id', button.dataset.approve); loadAdminTools(); }));
   document.querySelectorAll('[data-delete-comment]').forEach((button) => button.addEventListener('click', async () => { await client.from('comments').delete().eq('id', button.dataset.deleteComment); loadAdminTools(); }));
 }
@@ -581,7 +633,7 @@ $('save-post').addEventListener('click', async () => {
   }
   const tags = [...new Set($('post-tags').value.split(',').map((tag) => tag.trim().toLowerCase().replace(/^#/, '')).filter(Boolean))].slice(0, 8);
   const mode = $('post-mode').value;
-  const scheduledFor = mode === 'schedule' && $('post-schedule').value ? new Date($('post-schedule').value).toISOString() : null;
+  const scheduledFor = mode === 'schedule' && $('post-schedule').value ? moscowInputToIso($('post-schedule').value) : null;
   if (mode === 'schedule' && !scheduledFor) { postNotice('Выбери дату и время для отложенной публикации.'); return; }
   let existingPublishedAt = null;
   if (editingPostId) {
@@ -601,11 +653,8 @@ $('save-post').addEventListener('click', async () => {
   finally { $('save-post').disabled = false; }
 });
 
-await loadSettings();
+// Do not make the blog wait for settings, authentication, or the tracker.
 recordPrivacyFriendlyVisit();
-await loadElementEdits();
-await refreshAdmin();
-await loadSiteBlocks();
-await loadWinterArc();
-await loadPosts();
+const bootTasks = [loadSettings(), loadElementEdits(), refreshAdmin({ reloadArc: false }), loadSiteBlocks(), loadWinterArc(), loadTagCatalog(), loadPosts()];
 await openRoute();
+await Promise.allSettled(bootTasks);
