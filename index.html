@@ -26,7 +26,7 @@
     :root { --ink:#e9f8ff; --muted:#9fc4d4; --cyan:#30f6df; }
     * { box-sizing:border-box; }
     body { margin:0; min-height:100vh; color:var(--ink); font-family:Montserrat,Arial,sans-serif; background:#06152b; overflow-x:hidden; }
-    body::before { content:""; position:fixed; inset:0; z-index:-2; background:linear-gradient(90deg,rgba(3,13,30,.91) 0%,rgba(3,13,30,.82) 47%,rgba(3,13,30,.94) 100%),url('assets/pepega-wallpaper-1600.jpg') center/cover no-repeat; }
+    body::before { content:""; position:fixed; inset:-12px; z-index:-2; background:linear-gradient(90deg,rgba(3,13,30,.91) 0%,rgba(3,13,30,.82) 47%,rgba(3,13,30,.94) 100%),url('assets/pepega-wallpaper-1600.jpg') center/cover no-repeat; filter:blur(8px); }
     body::after { content:""; position:fixed; inset:0; z-index:-1; opacity:.34; pointer-events:none; background-image:linear-gradient(rgba(48,246,223,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(48,246,223,.07) 1px,transparent 1px); background-size:28px 28px; mask-image:linear-gradient(to bottom,#000,transparent 78%); animation:grid-drift 18s linear infinite; }
     .shell { width:min(1040px,calc(100% - 40px)); margin:0 auto; padding:25px 0 50px; display:flex; flex-direction:column; }
     nav { order:1; position:sticky; top:14px; z-index:4; width:fit-content; max-width:100%; margin:0 auto 28px; border:1px solid rgba(177,255,247,.85); border-radius:999px; padding:7px; display:flex; gap:5px; background:rgba(5,20,39,.93); box-shadow:0 0 24px rgba(48,246,223,.14),inset 0 0 14px rgba(48,246,223,.06); animation:neon-breathe 4s ease-in-out infinite, rise-in .55s ease-out both; }
