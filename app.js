@@ -285,6 +285,8 @@ async function toggleHabit(activity, checkinDate, isChecked) {
 
 function setActiveTab(tab, updateHash = false) {
   const selected = ['blog', 'about', 'projects', 'winter'].includes(tab) ? tab : 'blog';
+  const pageTitles = { blog: 'Блог', about: 'Обо мне', projects: 'Проекты', winter: 'Winter Arc' };
+  document.title = `${pageTitles[selected]} — vertexglz`;
   visualPageSelect.value = selected;
   document.querySelectorAll('[data-tab-panel]').forEach((panel) => panel.classList.toggle('active', panel.dataset.tabPanel === selected));
   document.querySelectorAll('[data-tab]').forEach((link) => {
@@ -328,6 +330,7 @@ function moscowInputToIso(value) {
 
 function notice(text) { message.textContent = text; }
 function formatDate(value) { return new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium' }).format(new Date(value)); }
+function readingTime(value = '') { return Math.max(1, Math.ceil(String(value).trim().split(/\s+/).filter(Boolean).length / 180)); }
 function mediaMarkup(path, type) {
   if (!path) return '';
   const { data } = client.storage.from('post-media').getPublicUrl(path);
@@ -476,7 +479,7 @@ async function loadPosts(append = false) {
     const article = document.createElement('article');
     article.className = `timeline-post${post.is_pinned ? ' pinned' : ''}`; article.dataset.postId = post.id;
     const body = post.body || post.excerpt || '';
-    article.innerHTML = `<img class="timeline-avatar" src="assets/pepega-avatar-512.jpg" alt="" width="44" height="44"><div><div class="timeline-author"><strong>vertexglz</strong><span>@vertexglz</span><time datetime="${escapeHtml(post.published_at || post.created_at)}">· ${formatDate(post.published_at || post.created_at)}</time>${post.is_pinned ? '<span class="timeline-pin">⌁ ЗАКРЕПЛЕНО</span>' : ''}</div><h3>${escapeHtml(post.title)}</h3><p class="timeline-text">${escapeHtml(body.slice(0, 700))}</p>${body.length > 700 ? '<button class="timeline-expand" type="button">Читать полностью</button>' : ''}${(post.tags || []).length ? `<div class="timeline-tags">${post.tags.map((tag) => `<button class="post-tag" type="button" data-post-tag="${escapeHtml(tag)}">#${escapeHtml(tag)}</button>`).join('')}</div>` : ''}${mediaMarkup(post.media_path, post.media_type)}<div class="timeline-actions"><button type="button" data-discuss>◯ Комментарии</button><button type="button" data-share>↗ Ссылка</button></div></div>`;
+    article.innerHTML = `<img class="timeline-avatar" src="assets/pepega-avatar-512.jpg" alt="" width="44" height="44"><div><div class="timeline-author"><strong>vertexglz</strong><span>@vertexglz</span><time datetime="${escapeHtml(post.published_at || post.created_at)}">· ${formatDate(post.published_at || post.created_at)}</time><span class="reading-time">· ${readingTime(body)} мин чтения</span>${post.is_pinned ? '<span class="timeline-pin">⌁ ЗАКРЕПЛЕНО</span>' : ''}</div><h3>${escapeHtml(post.title)}</h3><p class="timeline-text">${escapeHtml(body.slice(0, 700))}</p>${body.length > 700 ? '<button class="timeline-expand" type="button">Читать полностью</button>' : ''}${(post.tags || []).length ? `<div class="timeline-tags">${post.tags.map((tag) => `<button class="post-tag" type="button" data-post-tag="${escapeHtml(tag)}">#${escapeHtml(tag)}</button>`).join('')}</div>` : ''}${mediaMarkup(post.media_path, post.media_type)}<div class="timeline-actions"><button type="button" data-discuss>◯ Комментарии</button><button type="button" data-share>↗ Ссылка</button></div></div>`;
     article.querySelector('.timeline-expand')?.addEventListener('click', (event) => { article.querySelector('.timeline-text').textContent = body; event.currentTarget.remove(); });
     article.querySelector('[data-discuss]').addEventListener('click', () => openPost(post));
     if (isAdmin) {
@@ -491,13 +494,23 @@ async function loadPosts(append = false) {
     article.querySelectorAll('[data-post-tag]').forEach((button) => button.addEventListener('click', () => { feedTag = button.dataset.postTag; loadPosts(); }));
     article.querySelector('[data-share]').addEventListener('click', async (event) => {
       const button = event.currentTarget;
-      try { await navigator.clipboard.writeText(`${location.origin}${location.pathname}#post-${post.id}`); button.textContent = 'Скопировано ✓'; } catch { button.textContent = 'Не удалось скопировать'; }
+      const url = `${location.origin}${location.pathname}#post-${post.id}`;
+      try {
+        if (navigator.share) await navigator.share({ title: post.title, text: post.excerpt || body.slice(0, 160), url });
+        else await navigator.clipboard.writeText(url);
+        button.textContent = navigator.share ? 'Поделились ✓' : 'Скопировано ✓';
+      } catch (error) { if (error?.name !== 'AbortError') button.textContent = 'Не удалось поделиться'; }
     });
     feed.append(article);
   });
   feedOffset += posts.length;
 }
 $('timeline-more').addEventListener('click', () => { if (!feedBusy) loadPosts(true); });
+const backToTop = $('back-to-top');
+const updateBackToTop = () => backToTop.classList.toggle('hidden', window.scrollY < 540);
+window.addEventListener('scroll', updateBackToTop, { passive: true });
+backToTop.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+updateBackToTop();
 document.querySelectorAll('[data-feed-filter]').forEach((button) => button.addEventListener('click', () => {
   feedFilter = button.dataset.feedFilter;
   document.querySelectorAll('[data-feed-filter]').forEach((item) => item.classList.toggle('selected', item === button));
@@ -515,6 +528,7 @@ async function openPost(post) {
   const { data: comments } = await client.from('comments').select('author_name,body,created_at').eq('post_id', post.id).eq('is_approved', true).order('created_at');
   reader.classList.remove('hidden');
   reader.innerHTML = `<button class="timeline-expand" type="button" id="reader-back">← К ЛЕНТЕ</button><span class="meta">${formatDate(post.published_at || post.created_at)}</span><h3>${escapeHtml(post.title)}</h3>${(post.tags || []).length ? `<div class="timeline-tags">${post.tags.map((tag) => `<span class="post-tag">#${escapeHtml(tag)}</span>`).join('')}</div>` : ''}<div class="body-copy">${escapeHtml(post.body)}</div>${mediaMarkup(post.media_path, post.media_type)}<section class="comments"><h3>КОММЕНТАРИИ</h3><div>${(comments || []).map((comment) => `<div class="comment"><strong>${escapeHtml(comment.author_name)}</strong><br>${escapeHtml(comment.body)}</div>`).join('') || '<p>Пока нет комментариев.</p>'}</div><form class="form-grid" id="comment-form"><input id="comment-website" class="comment-website" tabindex="-1" autocomplete="off" aria-hidden="true"><input id="comment-name" maxlength="80" required placeholder="Ваше имя"><textarea id="comment-body" maxlength="2000" required placeholder="Ваш комментарий"></textarea><button class="action">ОТПРАВИТЬ НА МОДЕРАЦИЮ</button><span class="toast" id="comment-message"></span></form></section>`;
+  reader.querySelector('.meta').textContent += ` · ${readingTime(post.body)} мин чтения`;
   $('reader-back').addEventListener('click', () => { reader.classList.add('hidden'); history.replaceState(null, '', '#blog'); window.scrollTo({ top: $('blog-panel').offsetTop - 20, behavior: 'smooth' }); });
   $('comment-form').addEventListener('submit', async (event) => {
     event.preventDefault();
