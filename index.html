@@ -9,7 +9,7 @@
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <meta property="og:type" content="website">
   <meta property="og:title" content="vertexglz — digital space">
   <meta property="og:description" content="Разработка, проекты, Winter Arc и путь к лучшей версии себя.">
@@ -175,6 +175,8 @@
     .timeline-profile strong{font-size:18px;letter-spacing:-.035em}.timeline-profile span{margin-top:4px;color:#9b9692}
     .timeline-profile p{margin-top:16px;margin-bottom:15px;color:#cbc6c0;line-height:1.65}
     .timeline-profile a{display:inline-block;margin-bottom:19px;color:#f09aa1;font:600 11px 'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.04em}
+    /* Единая моноширинная система — как в верхней навигации. */
+    body,body *{font-family:'JetBrains Mono',monospace!important}
     @media(max-width:700px){.about-growth{grid-template-columns:1fr}.project-status{order:5}.arc-insights{grid-template-columns:1fr 1fr}.arc-heatmap{gap:5px}.heat-cell{min-height:42px}.admin-overview{grid-template-columns:1fr 1fr}}
   </style>
   <div class="visual-toolbar hidden" id="visual-toolbar"><span>РЕДАКТИРОВАНИЕ · Нажми на элемент</span><button class="action" id="visual-settings">ПАНЕЛЬ</button><button class="action" id="visual-exit">ЗАВЕРШИТЬ</button></div>
